@@ -11,7 +11,7 @@ function M.setup(opts)
         group = group,
         pattern = "*.ipynb",
         callback = function(args)
-            notebook.load(args.buf)
+            notebook.load(args.buf, M.ns)
         end,
     })
 

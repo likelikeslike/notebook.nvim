@@ -7,10 +7,11 @@ local M = {}
 
 local ipynb = require("notebook.ipynb")
 local cells = require("notebook.cells")
+local render = require("notebook.render")
 
 --- Load an .ipynb file into a buffer
 --- @param buf number Buffer handle
-function M.load(buf)
+function M.load(buf, ns)
     local filename = vim.api.nvim_buf_get_name(buf)
     local notebook = ipynb.load(filename)
 
@@ -20,6 +21,7 @@ function M.load(buf)
     end
 
     vim.b[buf].notebook = notebook
+    render.notebook(buf, notebook, ns)
 
     vim.bo[buf].modified = false
     vim.bo[buf].buftype = "acwrite"
