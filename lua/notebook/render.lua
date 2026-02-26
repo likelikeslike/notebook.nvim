@@ -7,6 +7,7 @@ local M = {}
 
 local ipynb = require("notebook.ipynb")
 local utils = require("notebook.utils")
+local output = require("notebook.output")
 
 --- Render notebook data to buffer (called on BufReadCmd)
 --- Main entry point for initial display of .ipynb file.
@@ -90,6 +91,7 @@ function M.notebook(buf, notebook, ns)
 
     local decor_ns = vim.api.nvim_create_namespace("jupyter_notebook_decor")
     M.apply_decorations(buf, decor_ns, cell_ranges)
+    M.render_outputs(buf, ns)
 end
 
 --- Apply visual decorations to cells
@@ -121,6 +123,43 @@ function M.apply_decorations(buf, ns, cell_ranges)
             virt_text = { { cell_label } },
             virt_text_pos = "overlay",
         })
+    end
+end
+
+--- Render saved outputs for all cells as virtual text
+--- Called on load and after cell refresh to display stored outputs.
+--- @param buf number Buffer handle
+--- @param ns number Namespace for cell extmarks
+function M.render_outputs(buf, ns)
+    local output_ns = vim.api.nvim_create_namespace("jupyter_notebook_output")
+    vim.api.nvim_buf_clear_namespace(buf, output_ns, 0, -1)
+
+    local cells = vim.b[buf].notebook_cells or {}
+    local cell_outputs = vim.b[buf].cell_outputs or {}
+    local extmarks = vim.api.nvim_buf_get_extmarks(buf, ns, 0, -1, { details = true })
+
+    for _, mark in ipairs(extmarks) do
+        local id, _, _, details = mark[1], mark[2], mark[3], mark[4]
+        local cell_info = cells[id]
+
+        if cell_info and cell_info.cell_type == "code" and cell_info.cell_id then
+            local output_data = cell_outputs[cell_info.cell_id]
+            if output_data and output_data.outputs and #output_data.outputs > 0 then
+                local end_row = details.end_row or 0
+                local virt_lines = output.format_outputs(
+                    output_data.outputs,
+                    output_data.execution_count,
+                    output_data.elapsed
+                )
+
+                if #virt_lines > 0 then
+                    vim.api.nvim_buf_set_extmark(buf, output_ns, end_row, 0, {
+                        virt_lines = virt_lines,
+                        virt_lines_above = false,
+                    })
+                end
+            end
+        end
     end
 end
 

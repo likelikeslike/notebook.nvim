@@ -42,4 +42,20 @@ function M.build_separator(cell_type, cell_id)
     return sep
 end
 
+--- Format elapsed time for display in output headers
+--- @param elapsed number? Execution time in seconds
+--- @return string formatted Human-readable time string or ""
+function M.format_elapsed(elapsed)
+    if not elapsed then return "" end
+    if elapsed < 1 then
+        return string.format(" (%.0fms)", elapsed * 1000)
+    elseif elapsed < 60 then
+        return string.format(" (%.2fs)", elapsed)
+    else
+        local mins = math.floor(elapsed / 60)
+        local secs = elapsed % 60
+        return string.format(" (%dm %.1fs)", mins, secs)
+    end
+end
+
 return M
