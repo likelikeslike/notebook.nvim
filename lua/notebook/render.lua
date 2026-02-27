@@ -99,10 +99,15 @@ end
 --- @param ns number Namespace for decoration extmarks
 --- @param cell_ranges table[] Cell range info from notebook()
 function M.apply_decorations(buf, ns, cell_ranges)
+    local bg_ns = vim.api.nvim_create_namespace("jupyter_notebook_bg")
+    vim.api.nvim_buf_clear_namespace(buf, bg_ns, 0, -1)
+
     for i, range in ipairs(cell_ranges) do
         local row = range.start_row
         local is_markdown = range.cell_type == "markdown"
 
+        local bg_hl = is_markdown and "JupyterNotebookCellBgMarkdown" or "JupyterNotebookCellBg"
+        local label_hl = is_markdown and "JupyterNotebookCellLabelMarkdown" or "JupyterNotebookCellLabel"
         local exec_count = range.execution_count
         local cell_label = is_markdown and " markdown " or " In [" .. (exec_count or " ") .. "] "
 
@@ -120,9 +125,17 @@ function M.apply_decorations(buf, ns, cell_ranges)
         })
 
         vim.api.nvim_buf_set_extmark(buf, ns, row, 0, {
-            virt_text = { { cell_label } },
+            virt_text = { { cell_label, label_hl } },
             virt_text_pos = "overlay",
+            hl_mode = "combine",
         })
+
+        for line_row = range.start_row, range.end_row do
+            vim.api.nvim_buf_set_extmark(buf, bg_ns, line_row, 0, {
+                line_hl_group = bg_hl,
+                priority = 1,
+            })
+        end
     end
 end
 
@@ -146,12 +159,8 @@ function M.render_outputs(buf, ns)
             local output_data = cell_outputs[cell_info.cell_id]
             if output_data and output_data.outputs and #output_data.outputs > 0 then
                 local end_row = details.end_row or 0
-                local virt_lines = output.format_outputs(
-                    output_data.outputs,
-                    output_data.execution_count,
-                    output_data.elapsed
-                )
-
+                local virt_lines =
+                    output.format_outputs(output_data.outputs, output_data.execution_count, output_data.elapsed)
                 if #virt_lines > 0 then
                     vim.api.nvim_buf_set_extmark(buf, output_ns, end_row, 0, {
                         virt_lines = virt_lines,

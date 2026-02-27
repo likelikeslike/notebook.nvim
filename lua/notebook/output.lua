@@ -14,7 +14,7 @@ local utils = require("notebook.utils")
 --- @param outputs table[] Jupyter output messages
 --- @param execution_count number? Kernel execution counter for header
 --- @param elapsed number? Execution time in seconds
---- @return table[] virt_lines Array of formatted output text
+--- @return table[] virt_lines Array of {text, hl_group} tuples
 function M.format_outputs(outputs, execution_count, elapsed)
     local virt_lines = {}
     local max_lines = 20
@@ -23,21 +23,21 @@ function M.format_outputs(outputs, execution_count, elapsed)
     local count_str = execution_count and tostring(execution_count) or " "
     local time_str = utils.format_elapsed(elapsed)
     table.insert(virt_lines, {
-        { "  ┌─ Out [" .. count_str .. "]" .. time_str .. " " },
+        { "  ┌─ Out [" .. count_str .. "]" .. time_str .. " ", "JupyterNotebookOutputBorder" },
     })
 
     for _, output in ipairs(outputs) do
         -- TODO: Display image with image.nvim
-        local lines, img = M.extract_output(output)
+        local lines, hl, img = M.extract_output(output)
 
         for _, line in ipairs(lines) do
             text_line_count = text_line_count + 1
             if text_line_count > max_lines then
-                table.insert(virt_lines, { { "  │ ... (truncated)" } })
+                table.insert(virt_lines, { { "  │ ... (truncated)", "JupyterNotebookOutputBorder" } })
                 goto finish
             end
 
-            table.insert(virt_lines, { { "  │ " }, { line } })
+            table.insert(virt_lines, { { "  │ ", "JupyterNotebookOutputBorder" }, { line, hl } })
         end
     end
 
@@ -45,6 +45,7 @@ function M.format_outputs(outputs, execution_count, elapsed)
     table.insert(virt_lines, {
         {
             "  └─────────────────────────────────────",
+            "JupyterNotebookOutputBorder",
         },
     })
 
@@ -54,9 +55,11 @@ end
 --- Extract text lines and image data from a single output
 --- @param output table Jupyter output message
 --- @return string[] lines Text lines to display
+--- @return string hl Highlight group name
 --- @return string? image_data Base64 PNG data if present
 function M.extract_output(output)
     local lines = {}
+    local hl = "JupyterNotebookOutput"
     local image_data = nil
 
     if output.output_type == "stream" then
@@ -65,6 +68,7 @@ function M.extract_output(output)
         for line in text:gmatch("[^\n]*") do
             if line ~= "" then table.insert(lines, line) end
         end
+        hl = output.name == "stderr" and "JupyterNotebookOutputError" or "JupyterNotebookOutput"
     elseif output.output_type == "execute_result" or output.output_type == "display_data" then
         local data = output.data
         if data then
@@ -84,6 +88,7 @@ function M.extract_output(output)
                 table.insert(lines, "[Image: PNG]")
             end
         end
+        hl = "JupyterNotebookOutputResult"
     elseif output.output_type == "error" then
         if output.traceback then
             for _, line in ipairs(output.traceback) do
@@ -95,9 +100,10 @@ function M.extract_output(output)
         elseif output.ename and output.evalue then
             table.insert(lines, output.ename .. ": " .. output.evalue)
         end
+        hl = "JupyterNotebookOutputError"
     end
 
-    return lines, image_data
+    return lines, hl, image_data
 end
 
 return M
