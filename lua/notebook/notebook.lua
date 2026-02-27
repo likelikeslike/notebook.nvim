@@ -32,6 +32,19 @@ function M.load(buf, ns)
 
     local ft = notebook.metadata.kernelspec and notebook.metadata.kernelspec.language or "python"
     vim.bo[buf].filetype = ft
+
+    local refresh_timer = vim.uv.new_timer()
+    vim.api.nvim_create_autocmd({ "TextChanged", "TextChangedI" }, {
+        buffer = buf,
+        callback = function()
+            refresh_timer:stop()
+            refresh_timer:start(150, 0, vim.schedule_wrap(function()
+                if vim.api.nvim_buf_is_valid(buf) then
+                    cells.refresh_cells(buf, ns)
+                end
+            end))
+        end,
+    })
 end
 
 --- Save buffer contents back to .ipynb file
