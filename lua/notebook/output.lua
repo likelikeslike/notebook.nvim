@@ -10,6 +10,11 @@ local M = {}
 
 local cells = require("notebook.cells")
 local utils = require("notebook.utils")
+local _image
+local function image()
+    if not _image then _image = require("notebook.image") end
+    return _image
+end
 
 local output_ns = vim.api.nvim_create_namespace("jupyter_notebook_output")
 local float_wins = {}
@@ -23,6 +28,7 @@ function M.format_outputs(outputs, execution_count, elapsed)
     local virt_lines = {}
     local max_lines = 20
     local text_line_count = 0
+    local image_count = 0
 
     local count_str = execution_count and tostring(execution_count) or " "
     local time_str = utils.format_elapsed(elapsed)
@@ -31,7 +37,6 @@ function M.format_outputs(outputs, execution_count, elapsed)
     })
 
     for _, output in ipairs(outputs) do
-        -- TODO: Display image with image.nvim
         local lines, hl, img = M.extract_output(output)
 
         for _, line in ipairs(lines) do
@@ -42,6 +47,14 @@ function M.format_outputs(outputs, execution_count, elapsed)
             end
 
             table.insert(virt_lines, { { "  │ ", "JupyterNotebookOutputBorder" }, { line, hl } })
+        end
+
+        if img then
+            image_count = image_count + 1
+            table.insert(virt_lines, {
+                { "  │ ", "JupyterNotebookOutputBorder" },
+                { "[Image " .. image_count .. ": Use toggle_output action to view]", "JupyterNotebookOutputResult" },
+            })
         end
     end
 
@@ -88,8 +101,7 @@ function M.extract_output(output)
                 if type(png) == "table" then png = table.concat(png, "") end
                 png = png:gsub("%s+", "")
                 image_data = png
-                -- TODO: Display image with image.nvim
-                table.insert(lines, "[Image: PNG]")
+                if not image().is_available() then table.insert(lines, "[Image: PNG - image.nvim not available]") end
             end
         end
         hl = "JupyterNotebookOutputResult"
@@ -110,7 +122,6 @@ function M.extract_output(output)
     return lines, hl, image_data
 end
 
-
 --- Toggle floating output window for current cell
 --- @param buf number Buffer handle
 --- @param ns number Namespace for extmarks
@@ -127,19 +138,23 @@ function M.toggle(buf, ns)
     end
 
     if float_wins[buf] and vim.api.nvim_win_is_valid(float_wins[buf]) then
+        if cell_info.cell_id then image().clear_cell_prefix(cell_info.cell_id .. "_float_") end
         vim.api.nvim_win_close(float_wins[buf], true)
         float_wins[buf] = nil
         return
     end
 
-    M.show_float(buf, output_data.outputs)
+    M.show_float(buf, output_data.outputs, cell_info.cell_id)
 end
 
---- Show full output in floating window
+--- Show full output in floating window with image support
 --- @param buf number Buffer handle
 --- @param outputs table[] Jupyter output messages
-function M.show_float(buf, outputs)
+--- @param cell_id string? Cell identifier for image tracking
+function M.show_float(buf, outputs, cell_id)
     local lines = {}
+    local image_data = nil
+    local images = {}
 
     local width = math.min(80, vim.o.columns - 4)
     local max_height = vim.o.lines - 4
@@ -149,10 +164,21 @@ function M.show_float(buf, outputs)
         for _, line in ipairs(out_lines) do
             table.insert(lines, line)
         end
-        -- TODO: Handle images
+        if img then
+            local entry = { data = img, line = #lines }
+            if image().is_available() then
+                local iw, ih = image().get_image_dimensions_from_base64(img, width, max_height)
+                entry.width = iw
+                entry.height = ih
+                for _ = 1, ih do
+                    table.insert(lines, "")
+                end
+            end
+            table.insert(images, entry)
+        end
     end
 
-    if #lines == 0 then return end
+    if #lines == 0 and not image_data then return end
 
     local height = math.min(math.max(#lines + 2, 1), max_height)
 
@@ -160,7 +186,7 @@ function M.show_float(buf, outputs)
     vim.api.nvim_buf_set_lines(float_buf, 0, -1, false, lines)
 
     local win = vim.api.nvim_open_win(float_buf, true, {
-        relative = "editorq",
+        relative = "editor",
         row = math.floor((vim.o.lines - height) / 2),
         col = math.floor((vim.o.columns - width) / 2),
         width = width,
@@ -179,7 +205,17 @@ function M.show_float(buf, outputs)
 
     float_wins[buf] = win
 
+    if #images > 0 and cell_id and image().is_available() then
+        vim.schedule(function()
+            for i, entry in ipairs(images) do
+                -- FIXME: If multiple images are present and exceed the max_height, the images will overflow the float window and display incorrectly.
+                image().render(float_buf, cell_id .. "_float_" .. i, entry.data, entry.line, entry.width, entry.height)
+            end
+        end)
+    end
+
     vim.keymap.set("n", "q", function()
+        if cell_id then image().clear_cell_prefix(cell_id .. "_float_") end
         if vim.api.nvim_win_is_valid(win) then vim.api.nvim_win_close(win, true) end
         float_wins[buf] = nil
     end, { buffer = float_buf })
@@ -196,6 +232,7 @@ function M.clear_cell(buf, ns)
         local cell_outputs = vim.b[buf].cell_outputs or {}
         cell_outputs[cell_info.cell_id] = nil
         vim.b[buf].cell_outputs = cell_outputs
+        image().clear_cell_prefix(cell_info.cell_id .. "_float_")
     end
 
     local extmarks = vim.api.nvim_buf_get_extmarks(buf, ns, 0, -1, { details = true })
