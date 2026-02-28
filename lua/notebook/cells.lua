@@ -58,10 +58,9 @@ end
 --- Get the cell at cursor position, with source content populated
 --- @param buf number Buffer handle
 --- @param ns number Namespace for extmarks
---- @param with_index? boolean When true, also return the 1-indexed position
 --- @return CellInfo? cell Cell at cursor, or nil if cursor not in a cell
 --- @return number? 1-indexed position in the cells array (only when with_index is true)
-function M.get_current(buf, ns, with_index)
+function M.get_current(buf, ns)
     local cursor = vim.api.nvim_win_get_cursor(0)
     local row = cursor[1] - 1
 
@@ -70,14 +69,11 @@ function M.get_current(buf, ns, with_index)
         if row >= cell.start_row and row <= cell.end_row then
             local lines = vim.api.nvim_buf_get_lines(buf, cell.start_row + 1, cell.end_row + 1, false)
             cell.source = table.concat(lines, "\n")
-            if with_index then
-                return cell, i
-            end
-            return cell
+            return cell, i
         end
     end
 
-    return nil
+    return nil, nil
 end
 
 
@@ -85,7 +81,7 @@ end
 --- @param buf number Buffer handle
 --- @param ns number Namespace for extmarks
 function M.goto_next(buf, ns)
-    local current, idx = M.get_current(buf, ns, true)
+    local current, idx = M.get_current(buf, ns)
     if not current then return end
 
     local all_cells = M.get_all(buf, ns)
@@ -100,7 +96,7 @@ end
 --- @param buf number Buffer handle
 --- @param ns number Namespace for extmarks
 function M.goto_prev(buf, ns)
-    local current, idx = M.get_current(buf, ns, true)
+    local current, idx = M.get_current(buf, ns)
     if not current or idx <= 1 then return end
 
     local all_cells = M.get_all(buf, ns)
@@ -272,7 +268,7 @@ end
 --- @param buf number Buffer handle
 --- @param ns number Namespace for extmarks
 function M.merge_below(buf, ns)
-    local current, idx = M.get_current(buf, ns, true)
+    local current, idx = M.get_current(buf, ns)
     if not current then return end
 
     local all_cells = M.get_all(buf, ns)
@@ -292,7 +288,7 @@ end
 --- @param buf number Buffer handle
 --- @param ns number Namespace for extmarks
 function M.merge_above(buf, ns)
-    local current, idx = M.get_current(buf, ns, true)
+    local current, idx = M.get_current(buf, ns)
     if not current then return end
 
     if idx <= 1 then

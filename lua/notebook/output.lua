@@ -8,7 +8,11 @@
 
 local M = {}
 
+local cells = require("notebook.cells")
 local utils = require("notebook.utils")
+
+local output_ns = vim.api.nvim_create_namespace("jupyter_notebook_output")
+local float_wins = {}
 
 --- Format outputs as virtual line specs for extmark display
 --- @param outputs table[] Jupyter output messages
@@ -104,6 +108,114 @@ function M.extract_output(output)
     end
 
     return lines, hl, image_data
+end
+
+
+--- Toggle floating output window for current cell
+--- @param buf number Buffer handle
+--- @param ns number Namespace for extmarks
+function M.toggle(buf, ns)
+    local cell_info = cells.get_current(buf, ns)
+    if not cell_info then return end
+
+    local cell_outputs = vim.b[buf].cell_outputs or {}
+    local output_data = cell_info.cell_id and cell_outputs[cell_info.cell_id]
+
+    if not output_data or not output_data.outputs or #output_data.outputs == 0 then
+        vim.notify("No output to display", vim.log.levels.INFO)
+        return
+    end
+
+    if float_wins[buf] and vim.api.nvim_win_is_valid(float_wins[buf]) then
+        vim.api.nvim_win_close(float_wins[buf], true)
+        float_wins[buf] = nil
+        return
+    end
+
+    M.show_float(buf, output_data.outputs)
+end
+
+--- Show full output in floating window
+--- @param buf number Buffer handle
+--- @param outputs table[] Jupyter output messages
+function M.show_float(buf, outputs)
+    local lines = {}
+
+    local width = math.min(80, vim.o.columns - 4)
+    local max_height = vim.o.lines - 4
+
+    for _, output in ipairs(outputs) do
+        local out_lines, _, img = M.extract_output(output)
+        for _, line in ipairs(out_lines) do
+            table.insert(lines, line)
+        end
+        -- TODO: Handle images
+    end
+
+    if #lines == 0 then return end
+
+    local height = math.min(math.max(#lines + 2, 1), max_height)
+
+    local float_buf = vim.api.nvim_create_buf(false, true)
+    vim.api.nvim_buf_set_lines(float_buf, 0, -1, false, lines)
+
+    local win = vim.api.nvim_open_win(float_buf, true, {
+        relative = "editorq",
+        row = math.floor((vim.o.lines - height) / 2),
+        col = math.floor((vim.o.columns - width) / 2),
+        width = width,
+        height = height,
+        style = "minimal",
+        border = "rounded",
+        title = " Output ",
+        title_pos = "center",
+        footer = " q: close ",
+        footer_pos = "center",
+    })
+    vim.bo[float_buf].modifiable = false
+    vim.wo[win].cursorline = vim.go.cursorline
+    vim.wo[win].number = vim.go.number
+    vim.wo[win].relativenumber = vim.go.relativenumber
+
+    float_wins[buf] = win
+
+    vim.keymap.set("n", "q", function()
+        if vim.api.nvim_win_is_valid(win) then vim.api.nvim_win_close(win, true) end
+        float_wins[buf] = nil
+    end, { buffer = float_buf })
+end
+
+--- Clear output for current cell
+--- @param buf number Buffer handle
+--- @param ns number Namespace for extmarks
+function M.clear_cell(buf, ns)
+    local cell_info = cells.get_current(buf, ns)
+    if not cell_info then return end
+
+    if cell_info.cell_id then
+        local cell_outputs = vim.b[buf].cell_outputs or {}
+        cell_outputs[cell_info.cell_id] = nil
+        vim.b[buf].cell_outputs = cell_outputs
+    end
+
+    local extmarks = vim.api.nvim_buf_get_extmarks(buf, ns, 0, -1, { details = true })
+    for _, mark in ipairs(extmarks) do
+        local id, _, _, details = mark[1], mark[2], mark[3], mark[4]
+        local cell_data = vim.b[buf].notebook_cells and vim.b[buf].notebook_cells[id]
+
+        if cell_data and cell_data.cell_id == cell_info.cell_id then
+            local end_row = details.end_row or 0
+            vim.api.nvim_buf_clear_namespace(buf, output_ns, end_row, end_row + 1)
+            break
+        end
+    end
+end
+
+--- Clear all outputs in buffer
+--- @param buf number Buffer handle
+function M.clear_all(buf)
+    vim.b[buf].cell_outputs = {}
+    vim.api.nvim_buf_clear_namespace(buf, output_ns, 0, -1)
 end
 
 return M

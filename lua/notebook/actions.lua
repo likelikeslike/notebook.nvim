@@ -4,6 +4,7 @@
 ---@brief ]]
 
 local cells = require("notebook.cells")
+local output = require("notebook.output")
 
 local M = {}
 
@@ -61,6 +62,28 @@ end
 --- @param ns number Namespace for extmarks
 function M.merge_cell_above(buf, ns)
     cells.merge_above(buf, ns)
+end
+
+
+--- Toggle floating output window for current cell
+--- @param buf number Buffer handle
+--- @param ns number Namespace for extmarks
+function M.toggle_output(buf, ns)
+    output.toggle(buf, ns)
+end
+
+--- Clear output for current cell
+--- @param buf number Buffer handle
+--- @param ns number Namespace for extmarks
+function M.clear_cell_output(buf, ns)
+    output.clear_cell(buf, ns)
+end
+
+--- Clear all cell outputs in buffer
+--- @param buf number Buffer handle
+--- @param ns number Namespace for extmarks
+function M.clear_all_outputs(buf, ns)
+    output.clear_all(buf)
 end
 
 return M

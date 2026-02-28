@@ -14,6 +14,9 @@ M.action_descriptions = {
     toggle_cell_type = "Toggle cell type",
     merge_cell_below = "Merge with cell below",
     merge_cell_above = "Merge with cell above",
+    toggle_output = "Toggle output",
+    clear_cell_output = "Clear cell output",
+    clear_all_outputs = "Clear all outputs",
 }
 
 local function setup_action_keymap(buf, action_fn, action_name, keys, modes, opts)
@@ -63,6 +66,19 @@ function M.setup(buf, ns, actions)
     setup_action_keymap(buf, function()
         actions.merge_cell_above(buf, ns)
     end, "merge_cell_above", { "<leader>jM" }, { "n" })
+
+
+    setup_action_keymap(buf, function()
+        actions.toggle_output(buf, ns)
+    end, "toggle_output", { "<leader>jo" }, { "n" })
+
+    setup_action_keymap(buf, function()
+        actions.clear_cell_output(buf, ns)
+    end, "clear_cell_output", { "<leader>jc" }, { "n" })
+
+    setup_action_keymap(buf, function()
+        actions.clear_all_outputs(buf, ns)
+    end, "clear_all_outputs", { "<leader>jC" }, { "n" })
 end
 
 return M
