@@ -1,6 +1,6 @@
 ---@mod notebook.cells Cell Management
 ---@brief [[
---- Manages notebook cells
+--- Manages notebook cells: tracking, navigation, creation, deletion, merging.
 ---
 --- Cell tracking uses extmarks to maintain cell boundaries as buffer changes.
 --- Each cell has an extmark spanning from separator line to last content line.
@@ -16,10 +16,12 @@
 ---@field cell_type string "code" or "markdown"
 ---@field cell_index number 1-indexed position in notebook
 ---@field cell_id string? Unique cell identifier
+---@field source string? Cell content (only accessible via M.get_current)
 
 local M = {}
 
 local ipynb = require("notebook.ipynb")
+local utils = require("notebook.utils")
 
 --- Get all cells in the buffer
 --- @param buf number Buffer handle
@@ -51,6 +53,253 @@ function M.get_all(buf, ns)
     end)
 
     return cells
+end
+
+--- Get the cell at cursor position, with source content populated
+--- @param buf number Buffer handle
+--- @param ns number Namespace for extmarks
+--- @return CellInfo? cell Cell at cursor, or nil if cursor not in a cell
+--- @return number? 1-indexed position in the cells array (only when with_index is true)
+function M.get_current(buf, ns)
+    local cursor = vim.api.nvim_win_get_cursor(0)
+    local row = cursor[1] - 1
+
+    local cells = M.get_all(buf, ns)
+    for i, cell in ipairs(cells) do
+        if row >= cell.start_row and row <= cell.end_row then
+            local lines = vim.api.nvim_buf_get_lines(buf, cell.start_row + 1, cell.end_row + 1, false)
+            cell.source = table.concat(lines, "\n")
+            return cell, i
+        end
+    end
+
+    return nil, nil
+end
+
+
+--- Move cursor to next cell (first content line)
+--- @param buf number Buffer handle
+--- @param ns number Namespace for extmarks
+function M.goto_next(buf, ns)
+    local current, idx = M.get_current(buf, ns)
+    if not current then return end
+
+    local all_cells = M.get_all(buf, ns)
+    local next_cell = all_cells[idx + 1]
+    if next_cell then
+        local target_row = math.min(next_cell.start_row + 1, next_cell.end_row)
+        vim.api.nvim_win_set_cursor(0, { target_row + 1, 0 })
+    end
+end
+
+--- Move cursor to previous cell (first content line)
+--- @param buf number Buffer handle
+--- @param ns number Namespace for extmarks
+function M.goto_prev(buf, ns)
+    local current, idx = M.get_current(buf, ns)
+    if not current or idx <= 1 then return end
+
+    local all_cells = M.get_all(buf, ns)
+    local prev_cell = all_cells[idx - 1]
+    local target_row = math.min(prev_cell.start_row + 1, prev_cell.end_row)
+    vim.api.nvim_win_set_cursor(0, { target_row + 1, 0 })
+end
+
+--- Rebuild cell extmarks from buffer text
+--- Called on TextChanged/TextChangedI to keep extmarks in sync with edits.
+--- Clears all namespaces and re-scans for "# %%" separators.
+--- @param buf number Buffer handle
+--- @param ns number Namespace for extmarks
+function M.refresh_cells(buf, ns)
+    vim.api.nvim_buf_clear_namespace(buf, ns, 0, -1)
+    local decor_ns = vim.api.nvim_create_namespace("jupyter_notebook_decor")
+    vim.api.nvim_buf_clear_namespace(buf, decor_ns, 0, -1)
+    local output_ns = vim.api.nvim_create_namespace("jupyter_notebook_output")
+    vim.api.nvim_buf_clear_namespace(buf, output_ns, 0, -1)
+
+    local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+    local cell_ranges = {}
+    local current_start = nil
+    local current_type = "code"
+    local current_id = nil
+
+    for i, line in ipairs(lines) do
+        local row = i - 1
+        if line:match("^# %%") then
+            if current_start ~= nil then
+                table.insert(cell_ranges, {
+                    start_row = current_start,
+                    end_row = row - 1,
+                    cell_type = current_type,
+                    cell_index = #cell_ranges + 1,
+                    cell_id = current_id,
+                })
+            end
+            current_start = row
+            current_type, current_id = utils.parse_separator(line)
+        end
+    end
+
+    if current_start ~= nil then
+        table.insert(cell_ranges, {
+            start_row = current_start,
+            end_row = #lines - 1,
+            cell_type = current_type,
+            cell_index = #cell_ranges + 1,
+            cell_id = current_id,
+        })
+    end
+
+    local cell_data = {}
+    for _, range in ipairs(cell_ranges) do
+        -- end_col=0 makes the extmark span through end_row (inclusive)
+        local mark_id = vim.api.nvim_buf_set_extmark(buf, ns, range.start_row, 0, {
+            end_row = range.end_row,
+            end_col = 0,
+        })
+        cell_data[mark_id] = {
+            cell_type = range.cell_type,
+            cell_index = range.cell_index,
+            cell_id = range.cell_id,
+        }
+    end
+
+    vim.b[buf].notebook_cells = cell_data
+
+    local render = require("notebook.render")
+    render.apply_decorations(buf, decor_ns, cell_ranges)
+
+    local config = require("notebook").config or {}
+    render.render_outputs(buf, ns)
+end
+
+--- Insert a new code cell below current cell
+--- @param buf number Buffer handle
+--- @param ns number Namespace for extmarks
+function M.add_below(buf, ns)
+    local current = M.get_current(buf, ns)
+    local insert_row
+
+    if current then
+        insert_row = current.end_row + 1
+    else
+        insert_row = vim.api.nvim_buf_line_count(buf)
+    end
+
+    local cell_id = utils.generate_cell_id()
+    local separator = utils.build_separator("code", cell_id)
+    local new_lines = { separator, "" }
+    vim.api.nvim_buf_set_lines(buf, insert_row, insert_row, false, new_lines)
+
+    M.refresh_cells(buf, ns)
+    vim.api.nvim_win_set_cursor(0, { insert_row + 2, 0 })
+
+    vim.bo[buf].modified = true
+end
+
+--- Insert a new code cell above current cell
+--- @param buf number Buffer handle
+--- @param ns number Namespace for extmarks
+function M.add_above(buf, ns)
+    local current = M.get_current(buf, ns)
+    local insert_row
+
+    if current then
+        insert_row = current.start_row
+    else
+        insert_row = 0
+    end
+
+    local cell_id = utils.generate_cell_id()
+    local separator = utils.build_separator("code", cell_id)
+    local new_lines = { separator, "" }
+    vim.api.nvim_buf_set_lines(buf, insert_row, insert_row, false, new_lines)
+
+    M.refresh_cells(buf, ns)
+    vim.api.nvim_win_set_cursor(0, { insert_row + 2, 0 })
+
+    vim.bo[buf].modified = true
+end
+
+--- Delete the cell at cursor
+--- @param buf number Buffer handle
+--- @param ns number Namespace for extmarks
+function M.delete_current(buf, ns)
+    local current = M.get_current(buf, ns)
+    if not current then
+        vim.notify("No cell at cursor", vim.log.levels.WARN)
+        return
+    end
+
+    local all_cells = M.get_all(buf, ns)
+    if #all_cells <= 1 then
+        vim.notify("Cannot delete the last cell", vim.log.levels.WARN)
+        return
+    end
+
+    local start_row = current.start_row
+    local end_row = current.end_row
+
+    vim.api.nvim_buf_set_lines(buf, start_row, end_row + 1, false, {})
+
+    M.refresh_cells(buf, ns)
+    vim.bo[buf].modified = true
+end
+
+--- Toggle cell type between code and markdown
+--- @param buf number Buffer handle
+--- @param ns number Namespace for extmarks
+function M.toggle_type(buf, ns)
+    local current = M.get_current(buf, ns)
+    if not current then
+        vim.notify("No cell at cursor", vim.log.levels.WARN)
+        return
+    end
+
+    local new_type = current.cell_type == "code" and "markdown" or "code"
+    local new_line = utils.build_separator(new_type, current.cell_id)
+
+    vim.api.nvim_buf_set_lines(buf, current.start_row, current.start_row + 1, false, { new_line })
+    M.refresh_cells(buf, ns)
+    vim.bo[buf].modified = true
+end
+
+--- Merge current cell with the cell below (remove separator between them)
+--- @param buf number Buffer handle
+--- @param ns number Namespace for extmarks
+function M.merge_below(buf, ns)
+    local current, idx = M.get_current(buf, ns)
+    if not current then return end
+
+    local all_cells = M.get_all(buf, ns)
+    local next_cell = all_cells[idx + 1]
+    if not next_cell then
+        vim.notify("No cell below to merge", vim.log.levels.WARN)
+        return
+    end
+
+    vim.api.nvim_buf_set_lines(buf, next_cell.start_row, next_cell.start_row + 1, false, {})
+
+    M.refresh_cells(buf, ns)
+    vim.bo[buf].modified = true
+end
+
+--- Merge current cell with the cell above (remove current cell's separator)
+--- @param buf number Buffer handle
+--- @param ns number Namespace for extmarks
+function M.merge_above(buf, ns)
+    local current, idx = M.get_current(buf, ns)
+    if not current then return end
+
+    if idx <= 1 then
+        vim.notify("No cell above to merge", vim.log.levels.WARN)
+        return
+    end
+
+    vim.api.nvim_buf_set_lines(buf, current.start_row, current.start_row + 1, false, {})
+
+    M.refresh_cells(buf, ns)
+    vim.bo[buf].modified = true
 end
 
 --- Sync buffer text back to notebook.cells for saving

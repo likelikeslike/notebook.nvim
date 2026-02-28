@@ -1,6 +1,11 @@
 ---@mod notebook.utils Utility Functions
 ---@brief [[
 --- Utilities for cell ID generation and separator line parsing.
+---
+--- Cell separator format: "# %% [markdown] id:xxx"
+--- - "# %%" is the cell marker (VS Code / Jupyter notebook style)
+--- - "[markdown]" or "[md]" indicates markdown cell (optional)
+--- - "id:xxx" is the unique cell identifier (optional, auto-generated)
 ---@brief ]]
 
 local M = {}

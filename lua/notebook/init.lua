@@ -35,6 +35,14 @@ function M.setup(opts)
             notebook.save(args.buf)
         end,
     })
+
+    vim.api.nvim_create_autocmd({ "BufUnload" }, {
+        group = group,
+        pattern = "*.ipynb",
+        callback = function(args)
+            require("notebook.image").clear_buffer(args.buf)
+        end,
+    })
 end
 
 return M
