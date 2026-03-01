@@ -233,11 +233,11 @@ function M.pick_python(callback)
     end
 
     local displays = {}
-    local path_map = {}
+    local interpreter_map = {}
 
     for _, python in ipairs(pythons) do
         table.insert(displays, python.display)
-        path_map[python.display] = python.path
+        interpreter_map[python.display] = { path = python.path, env_type = python.env_type }
     end
 
     table.insert(displays, "[ Manual input ... ]")
@@ -260,8 +260,8 @@ function M.pick_python(callback)
                     end
                 end
             end)
-        elseif path_map[choice] and callback then
-            callback(path_map[choice])
+        elseif interpreter_map[choice] and callback then
+            callback(interpreter_map[choice])
         end
     end)
 end
