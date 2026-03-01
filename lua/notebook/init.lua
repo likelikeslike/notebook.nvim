@@ -48,6 +48,8 @@ function M.setup(opts)
             require("notebook.image").clear_buffer(args.buf)
         end,
     })
+
+    require("notebook.actions").setup_commands(M)
 end
 
 return M

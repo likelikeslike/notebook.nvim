@@ -374,4 +374,112 @@ function M.interrupt_kernel(buf)
     kernel.interrupt(buf)
 end
 
+--- Register all :Jupyter* user commands
+--- Commands registered:
+--- - :JupyterNextCell - Go to next cell
+--- - :JupyterPrevCell - Go to previous cell
+--- - :JupyterAddCellBelow - Add cell below
+--- - :JupyterAddCellAbove - Add cell above
+--- - :JupyterDeleteCell - Delete current cell
+--- - :JupyterToggleCellType - Toggle code/markdown
+--- - :JupyterMergeCellBelow - Merge with cell below
+--- - :JupyterMergeCellAbove - Merge with cell above
+--- - :JupyterToggleOutput - Toggle cell output
+--- - :JupyterClearOutput - Clear current cell output
+--- - :JupyterClearAllOutputs - Clear all cell outputs
+--- - :JupyterSelectKernel - Select Python interpreter
+--- - :JupyterRestart - Restart kernel
+--- - :JupyterVariables - Show variables
+--- - :JupyterInspect - Inspect variable under cursor
+--- - :JupyterExecuteCell - Execute current cell
+--- - :JupyterExecuteAll - Execute all cells
+--- - :JupyterExecuteBelow - Execute from current cell to end
+--- - :JupyterExecuteAbove - Execute from start to current cell
+--- - :JupyterInterrupt - Interrupt kernel
+--- @param notebook table Main notebook module with config and ns
+function M.setup_commands(notebook)
+    local ns = notebook.ns
+    local config = notebook.config
+
+    vim.api.nvim_create_user_command("JupyterNextCell", function()
+        M.next_cell(vim.api.nvim_get_current_buf(), ns)
+    end, { desc = "Go to next Jupyter cell" })
+
+    vim.api.nvim_create_user_command("JupyterPrevCell", function()
+        M.prev_cell(vim.api.nvim_get_current_buf(), ns)
+    end, { desc = "Go to previous Jupyter cell" })
+
+    vim.api.nvim_create_user_command("JupyterAddCellBelow", function()
+        M.add_cell_below(vim.api.nvim_get_current_buf(), ns)
+    end, { desc = "Add Jupyter cell below" })
+
+    vim.api.nvim_create_user_command("JupyterAddCellAbove", function()
+        M.add_cell_above(vim.api.nvim_get_current_buf(), ns)
+    end, { desc = "Add Jupyter cell above" })
+
+    vim.api.nvim_create_user_command("JupyterDeleteCell", function()
+        M.delete_cell(vim.api.nvim_get_current_buf(), ns)
+    end, { desc = "Delete current Jupyter cell" })
+
+    vim.api.nvim_create_user_command("JupyterToggleCellType", function()
+        M.toggle_cell_type(vim.api.nvim_get_current_buf(), ns)
+    end, { desc = "Toggle code/markdown" })
+
+    vim.api.nvim_create_user_command("JupyterMergeCellBelow", function()
+        M.merge_cell_below(vim.api.nvim_get_current_buf(), ns)
+    end, { desc = "Merge with cell below" })
+
+    vim.api.nvim_create_user_command("JupyterMergeCellAbove", function()
+        M.merge_cell_above(vim.api.nvim_get_current_buf(), ns)
+    end, { desc = "Merge with cell above" })
+
+    vim.api.nvim_create_user_command("JupyterToggleOutput", function()
+        M.toggle_output(vim.api.nvim_get_current_buf(), ns)
+    end, { desc = "Toggle current cell output" })
+
+    vim.api.nvim_create_user_command("JupyterClearOutput", function()
+        M.clear_cell_output(vim.api.nvim_get_current_buf(), ns)
+    end, { desc = "Clear current cell output" })
+
+    vim.api.nvim_create_user_command("JupyterClearAllOutputs", function()
+        M.clear_all_outputs(vim.api.nvim_get_current_buf(), ns)
+    end, { desc = "Clear all cell outputs" })
+
+    vim.api.nvim_create_user_command("JupyterSelectKernel", function()
+        M.select_kernel(vim.api.nvim_get_current_buf(), config)
+    end, { desc = "Select Python interpreter" })
+
+    vim.api.nvim_create_user_command("JupyterRestart", function()
+        M.restart_kernel(vim.api.nvim_get_current_buf())
+    end, { desc = "Restart kernel" })
+
+    vim.api.nvim_create_user_command("JupyterVariables", function()
+        M.show_variables(vim.api.nvim_get_current_buf())
+    end, { desc = "Show variables" })
+
+    vim.api.nvim_create_user_command("JupyterInspect", function()
+        M.inspect_variable(vim.api.nvim_get_current_buf())
+    end, { desc = "Inspect variable under cursor" })
+
+    vim.api.nvim_create_user_command("JupyterExecuteCell", function()
+        M.execute_cell(vim.api.nvim_get_current_buf(), ns, config.python)
+    end, { desc = "Execute current cell" })
+
+    vim.api.nvim_create_user_command("JupyterExecuteAll", function()
+        M.execute_all_cells(vim.api.nvim_get_current_buf(), ns, config.python)
+    end, { desc = "Execute all cells" })
+
+    vim.api.nvim_create_user_command("JupyterExecuteBelow", function()
+        M.execute_cells_below(vim.api.nvim_get_current_buf(), ns, config.python)
+    end, { desc = "Execute from current cell to end" })
+
+    vim.api.nvim_create_user_command("JupyterExecuteAbove", function()
+        M.execute_cells_above(vim.api.nvim_get_current_buf(), ns, config.python)
+    end, { desc = "Execute from start to current cell" })
+
+    vim.api.nvim_create_user_command("JupyterInterrupt", function()
+        M.interrupt_kernel(vim.api.nvim_get_current_buf())
+    end, { desc = "Interrupt kernel" })
+end
+
 return M
