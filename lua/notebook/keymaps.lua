@@ -11,12 +11,21 @@ M.action_descriptions = {
     add_cell_below = "Add cell below",
     add_cell_above = "Add cell above",
     delete_cell = "Delete cell",
-    toggle_cell_type = "Toggle cell type",
+    toggle_cell_type = "Toggle code/markdown",
     merge_cell_below = "Merge with cell below",
     merge_cell_above = "Merge with cell above",
     toggle_output = "Toggle output",
-    clear_cell_output = "Clear cell output",
-    clear_all_outputs = "Clear all outputs",
+    clear_cell_output = "Clear current cell output",
+    clear_all_outputs = "Clear all cell outputs",
+    select_kernel = "Select Python interpreter",
+    restart_kernel = "Restart kernel",
+    show_variables = "Show variables",
+    inspect_variable = "Inspect variable under cursor",
+    execute_cell = "Execute current cell",
+    execute_all_cells = "Execute all cells",
+    execute_cells_below = "Execute cells below",
+    execute_cells_above = "Execute cells above",
+    interrupt_kernel = "Interrupt kernel",
 }
 
 local function setup_action_keymap(buf, action_fn, action_name, keys, modes, opts)
@@ -34,7 +43,8 @@ end
 --- @param buf number Buffer handle
 --- @param ns number Namespace for extmarks
 --- @param actions table Actions module
-function M.setup(buf, ns, actions)
+--- @param config table Plugin configuration
+function M.setup(buf, ns, actions, config)
     setup_action_keymap(buf, function()
         actions.next_cell(buf, ns)
     end, "next_cell", { "]c" }, { "n" })
@@ -67,7 +77,6 @@ function M.setup(buf, ns, actions)
         actions.merge_cell_above(buf, ns)
     end, "merge_cell_above", { "<leader>jM" }, { "n" })
 
-
     setup_action_keymap(buf, function()
         actions.toggle_output(buf, ns)
     end, "toggle_output", { "<leader>jo" }, { "n" })
@@ -79,6 +88,42 @@ function M.setup(buf, ns, actions)
     setup_action_keymap(buf, function()
         actions.clear_all_outputs(buf, ns)
     end, "clear_all_outputs", { "<leader>jC" }, { "n" })
+
+    setup_action_keymap(buf, function()
+        actions.select_kernel(buf, config)
+    end, "select_kernel", { "<leader>jk" }, { "n" })
+
+    setup_action_keymap(buf, function()
+        actions.restart_kernel(buf)
+    end, "restart_kernel", { "<leader>jr" }, { "n" })
+
+    setup_action_keymap(buf, function()
+        actions.show_variables(buf)
+    end, "show_variables", { "<leader>jv" }, { "n" })
+
+    setup_action_keymap(buf, function()
+        actions.inspect_variable(buf)
+    end, "inspect_variable", { "<leader>jh" }, { "n" })
+
+    setup_action_keymap(buf, function()
+        actions.execute_cell(buf, ns, config.python)
+    end, "execute_cell", { "<leader>jx" }, { "n" })
+
+    setup_action_keymap(buf, function()
+        actions.execute_all_cells(buf, ns, config.python)
+    end, "execute_all_cells", { "<leader>jX" }, { "n" })
+
+    setup_action_keymap(buf, function()
+        actions.execute_cells_below(buf, ns, config.python)
+    end, "execute_cells_below", { "<leader>jb" }, { "n" })
+
+    setup_action_keymap(buf, function()
+        actions.execute_cells_above(buf, ns, config.python)
+    end, "execute_cells_above", { "<leader>jB" }, { "n" })
+
+    setup_action_keymap(buf, function()
+        actions.interrupt_kernel(buf)
+    end, "interrupt_kernel", { "<leader>ji" }, { "n" })
 end
 
 return M

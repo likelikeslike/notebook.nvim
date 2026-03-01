@@ -1,5 +1,9 @@
 local M = {}
 
+M.config = {
+    python = nil,
+}
+
 local notebook = require("notebook.notebook")
 
 local function setup_highlights()
@@ -24,7 +28,7 @@ function M.setup(opts)
         group = group,
         pattern = "*.ipynb",
         callback = function(args)
-            notebook.load(args.buf, M.ns)
+            notebook.load(args.buf, M.ns, M.config)
         end,
     })
 
@@ -40,9 +44,12 @@ function M.setup(opts)
         group = group,
         pattern = "*.ipynb",
         callback = function(args)
+            require("notebook.kernel").disconnect(args.buf)
             require("notebook.image").clear_buffer(args.buf)
         end,
     })
+
+    require("notebook.actions").setup_commands(M)
 end
 
 return M
