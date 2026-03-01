@@ -57,7 +57,7 @@ end
 --- Reads kernel name from notebook metadata, spawns Python subprocess,
 --- starts kernel, and establishes communication channel
 --- @param buf number Buffer handle
---- @param python table Python interpreter info (path and env_type)
+--- @param python table? Python interpreter info (path and env_type)
 --- @param callback? function Called on success (no args)
 function M.connect(buf, python, callback)
     if job_ids[buf] then

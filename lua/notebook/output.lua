@@ -19,12 +19,123 @@ end
 local output_ns = vim.api.nvim_create_namespace("jupyter_notebook_output")
 local float_wins = {}
 
+--- Update the In [n] label for a cell after execution
+--- @param buf number Buffer handle
+--- @param ns number Namespace for cell extmarks
+--- @param cell_id string Cell identifier
+--- @param execution_count number Kernel execution counter
+function M.update_cell_label(buf, ns, cell_id, execution_count)
+    local decor_ns = vim.api.nvim_create_namespace("jupyter_notebook_decor")
+    local notebook_cells = vim.b[buf].notebook_cells or {}
+    local extmarks = vim.api.nvim_buf_get_extmarks(buf, ns, 0, -1, { details = true })
+
+    for _, mark in ipairs(extmarks) do
+        local id, row = mark[1], mark[2]
+        local cell_data = notebook_cells[id]
+
+        if cell_data and cell_data.cell_id == cell_id and cell_data.cell_type == "code" then
+            cell_data.execution_count = execution_count
+            notebook_cells[id] = cell_data
+            vim.b[buf].notebook_cells = notebook_cells
+
+            local label = " In [" .. execution_count .. "] "
+            local label_hl = "JupyterNotebookCellLabel"
+
+            local existing = vim.api.nvim_buf_get_extmarks(buf, decor_ns, { row, 0 }, { row, -1 }, { details = true })
+            for _, em in ipairs(existing) do
+                local d = em[4]
+                if d and d.virt_text and d.virt_text_pos == "overlay" then
+                    vim.api.nvim_buf_del_extmark(buf, decor_ns, em[1])
+                end
+            end
+
+            vim.api.nvim_buf_set_extmark(buf, decor_ns, row, 0, {
+                virt_text = { { label, label_hl } },
+                virt_text_pos = "overlay",
+                hl_mode = "combine",
+            })
+            break
+        end
+    end
+end
+
+--- Store and render output for a cell (called after execution)
+--- @param buf number Buffer handle
+--- @param cell_info CellInfo Cell that was executed
+--- @param outputs table[] Jupyter output messages
+--- @param ns number Namespace for extmarks
+--- @param elapsed number? Execution time in seconds
+--- @param was_interrupted boolean? Whether execution was interrupted
+--- @param execution_count number? Kernel execution count from execute_reply
+function M.display(buf, cell_info, outputs, ns, elapsed, was_interrupted, execution_count)
+    if cell_info.cell_id then
+        local exec_count = execution_count
+        if not exec_count then
+            for _, out in ipairs(outputs) do
+                if out.execution_count then
+                    exec_count = out.execution_count
+                    break
+                end
+            end
+        end
+
+        local cell_outputs = vim.b[buf].cell_outputs or {}
+        cell_outputs[cell_info.cell_id] = {
+            outputs = outputs,
+            execution_count = exec_count,
+            elapsed = elapsed,
+            interrupted = was_interrupted,
+        }
+        vim.b[buf].cell_outputs = cell_outputs
+    end
+
+    M.render_cell_output(buf, cell_info, outputs, ns, elapsed, was_interrupted)
+end
+
+--- Render output as virtual text below cell
+--- @param buf number Buffer handle
+--- @param cell_info CellInfo Cell to render output for
+--- @param outputs table[] Jupyter output messages
+--- @param ns number Namespace for extmarks
+--- @param elapsed number? Execution time in seconds
+--- @param was_interrupted boolean? Whether execution was interrupted
+function M.render_cell_output(buf, cell_info, outputs, ns, elapsed, was_interrupted)
+    local extmarks = vim.api.nvim_buf_get_extmarks(buf, ns, 0, -1, { details = true })
+
+    for _, mark in ipairs(extmarks) do
+        local id, _, _, details = mark[1], mark[2], mark[3], mark[4]
+        local cell_data = vim.b[buf].notebook_cells and vim.b[buf].notebook_cells[id]
+
+        if cell_data and cell_data.cell_id and cell_data.cell_id == cell_info.cell_id then
+            local end_row = details.end_row or 0
+
+            vim.api.nvim_buf_clear_namespace(buf, output_ns, end_row, end_row + 1)
+
+            local cell_outputs = vim.b[buf].cell_outputs or {}
+            local output_data = cell_info.cell_id and cell_outputs[cell_info.cell_id]
+            local exec_count = output_data and output_data.execution_count
+            local virt_lines = M.format_outputs(outputs, exec_count, elapsed, was_interrupted)
+            if #virt_lines > 0 then
+                vim.api.nvim_buf_set_extmark(buf, output_ns, end_row, 0, {
+                    virt_lines = virt_lines,
+                    virt_lines_above = false,
+                })
+            end
+
+            if cell_info.cell_id then image().clear_cell(cell_info.cell_id) end
+
+            break
+        end
+    end
+end
+
 --- Format outputs as virtual line specs for extmark display
 --- @param outputs table[] Jupyter output messages
 --- @param execution_count number? Kernel execution counter for header
 --- @param elapsed number? Execution time in seconds
+--- @param was_interrupted boolean? Whether execution was interrupted
 --- @return table[] virt_lines Array of {text, hl_group} tuples
-function M.format_outputs(outputs, execution_count, elapsed)
+function M.format_outputs(outputs, execution_count, elapsed, was_interrupted)
     local virt_lines = {}
     local max_lines = 20
     local text_line_count = 0
@@ -32,9 +143,17 @@ function M.format_outputs(outputs, execution_count, elapsed)
 
     local count_str = execution_count and tostring(execution_count) or " "
     local time_str = utils.format_elapsed(elapsed)
-    table.insert(virt_lines, {
-        { "  ┌─ Out [" .. count_str .. "]" .. time_str .. " ", "JupyterNotebookOutputBorder" },
-    })
+
+    if was_interrupted then
+        table.insert(virt_lines, {
+            { "  ┌─ Out [" .. count_str .. "]" .. time_str .. " ", "JupyterNotebookOutputBorder" },
+            { "[Interrupted]", "JupyterNotebookOutputError" },
+        })
+    else
+        table.insert(virt_lines, {
+            { "  ┌─ Out [" .. count_str .. "]" .. time_str .. " ", "JupyterNotebookOutputBorder" },
+        })
+    end
 
     for _, output in ipairs(outputs) do
         local lines, hl, img = M.extract_output(output)

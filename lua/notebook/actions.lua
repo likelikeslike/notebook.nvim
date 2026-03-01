@@ -134,13 +134,16 @@ end
 --- Open Python interpreter picker and set as kernel
 --- Checks for jupyter_client, offers to install if missing
 --- @param buf number Buffer handle
-function M.select_kernel(buf)
+--- @param config table Plugin configuration
+function M.select_kernel(buf, config)
     local python = require("notebook.python")
 
     python.pick_python(function(python)
         if not python then return end
 
         local function setup_kernel()
+            config.python = python
+
             local notebook = vim.b[buf].notebook
             if notebook then
                 notebook.metadata.kernelspec = {
@@ -215,6 +218,160 @@ function M.inspect_variable(buf)
     kernel.inspect(buf, word, function(info)
         output.show_hover(info)
     end)
+end
+
+--- Execute current cell via kernel
+--- Auto-connects to kernel if not connected. Displays streaming output
+--- @param buf number Buffer handle
+--- @param ns number Namespace for extmarks
+--- @param python table? Python interpreter info (path and env_type)
+function M.execute_cell(buf, ns, python)
+    local cell_info = cells.get_current(buf, ns)
+    if not cell_info then
+        vim.notify("No cell found at cursor", vim.log.levels.WARN)
+        return
+    end
+
+    if cell_info.cell_type ~= "code" then
+        vim.notify("Cannot execute markdown cell", vim.log.levels.WARN)
+        return
+    end
+
+    local start_time = vim.uv.hrtime()
+
+    local function on_done(result, was_interrupted, execution_count)
+        local elapsed = (vim.uv.hrtime() - start_time) / 1e9
+        output.display(buf, cell_info, result, ns, elapsed, was_interrupted, execution_count)
+    end
+
+    local function on_output(result)
+        local elapsed = (vim.uv.hrtime() - start_time) / 1e9
+        output.display(buf, cell_info, result, ns, elapsed)
+    end
+
+    local function on_execute_count(count)
+        output.update_cell_label(buf, ns, cell_info.cell_id, count)
+    end
+
+    if not kernel.is_connected(buf) then
+        kernel.connect(buf, python, function()
+            kernel.execute(buf, cell_info, on_done, on_output, on_execute_count)
+        end)
+    else
+        kernel.execute(buf, cell_info, on_done, on_output, on_execute_count)
+    end
+end
+
+--- Execute a filtered range of code cells sequentially
+--- Collects code cells matching filter_fn, executes them in order,
+--- stops on interrupt, and shows done_msg when complete
+--- @param buf number Buffer handle
+--- @param ns number Namespace for extmarks
+--- @param python table? Python interpreter info (path and env_type)
+--- @param filter_fn function(cell): boolean Predicate to select which cells to execute
+--- @param done_msg string Message shown after all cells finish
+local function execute_cell_range(buf, ns, python, filter_fn, done_msg)
+    local all_cells = cells.get_all(buf, ns)
+    local code_cells = {}
+
+    for _, cell in ipairs(all_cells) do
+        if cell.cell_type == "code" and filter_fn(cell) then
+            local lines = vim.api.nvim_buf_get_lines(buf, cell.start_row + 1, cell.end_row + 1, false)
+            cell.source = table.concat(lines, "\n")
+            table.insert(code_cells, cell)
+        end
+    end
+
+    if #code_cells == 0 then
+        vim.notify("No code cells to execute", vim.log.levels.WARN)
+        return
+    end
+
+    local function execute_next(index)
+        if index > #code_cells then
+            vim.notify(done_msg, vim.log.levels.INFO)
+            return
+        end
+
+        local cell_info = code_cells[index]
+        local start_time = vim.uv.hrtime()
+
+        local function on_done(result, was_interrupted, execution_count)
+            local elapsed = (vim.uv.hrtime() - start_time) / 1e9
+            output.display(buf, cell_info, result, ns, elapsed, was_interrupted, execution_count)
+            if not was_interrupted then execute_next(index + 1) end
+        end
+
+        local function on_output(result)
+            local elapsed = (vim.uv.hrtime() - start_time) / 1e9
+            output.display(buf, cell_info, result, ns, elapsed)
+        end
+
+        local function on_execute_count(count)
+            output.update_cell_label(buf, ns, cell_info.cell_id, count)
+        end
+
+        kernel.execute(buf, cell_info, on_done, on_output, on_execute_count)
+    end
+
+    if not kernel.is_connected(buf) then
+        kernel.connect(buf, python, function()
+            execute_next(1)
+        end)
+    else
+        execute_next(1)
+    end
+end
+
+--- Execute all code cells sequentially
+--- Stops on interrupt. Auto-connects to kernel if needed
+--- @param buf number Buffer handle
+--- @param ns number Namespace for extmarks
+--- @param python table? Python interpreter info (path and env_type)
+function M.execute_all_cells(buf, ns, python)
+    execute_cell_range(buf, ns, python, function()
+        return true
+    end, "All cells executed")
+end
+
+--- Execute code cells from current cell to the end
+--- Stops on interrupt. Auto-connects to kernel if needed
+--- @param buf number Buffer handle
+--- @param ns number Namespace for extmarks
+--- @param python table? Python interpreter info (path and env_type)
+function M.execute_cells_below(buf, ns, python)
+    local current = cells.get_current(buf, ns)
+    if not current then
+        vim.notify("No cell found at cursor", vim.log.levels.WARN)
+        return
+    end
+
+    execute_cell_range(buf, ns, python, function(cell)
+        return cell.start_row >= current.start_row
+    end, "Cells below executed")
+end
+
+--- Execute code cells from beginning to current cell (inclusive)
+--- Stops on interrupt. Auto-connects to kernel if needed
+--- @param buf number Buffer handle
+--- @param ns number Namespace for extmarks
+--- @param python table? Python interpreter info (path and env_type)
+function M.execute_cells_above(buf, ns, python)
+    local current = cells.get_current(buf, ns)
+    if not current then
+        vim.notify("No cell found at cursor", vim.log.levels.WARN)
+        return
+    end
+
+    execute_cell_range(buf, ns, python, function(cell)
+        return cell.start_row <= current.start_row
+    end, "Cells above executed")
+end
+
+--- Interrupt running kernel execution
+--- @param buf number Buffer handle
+function M.interrupt_kernel(buf)
+    kernel.interrupt(buf)
 end
 
 return M

@@ -13,7 +13,8 @@ local render = require("notebook.render")
 
 --- Load an .ipynb file into a buffer
 --- @param buf number Buffer handle
-function M.load(buf, ns)
+--- @param config table Plugin configuration
+function M.load(buf, ns, config)
     local filename = vim.api.nvim_buf_get_name(buf)
     local notebook = ipynb.load(filename)
 
@@ -35,7 +36,7 @@ function M.load(buf, ns)
     local ft = notebook.metadata.kernelspec and notebook.metadata.kernelspec.language or "python"
     vim.bo[buf].filetype = ft
 
-    keymaps.setup(buf, ns, actions)
+    keymaps.setup(buf, ns, actions, config)
 
     local refresh_timer = vim.uv.new_timer()
     vim.api.nvim_create_autocmd({ "TextChanged", "TextChangedI" }, {
