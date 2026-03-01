@@ -9,6 +9,198 @@ local output = require("notebook.output")
 
 local M = {}
 
+local function is_separator(buf, row)
+    local line = vim.api.nvim_buf_get_lines(buf, row, row + 1, false)[1] or ""
+    return line:match("^# %%") ~= nil
+end
+
+--- Move cursor up, respecting cell boundaries (skips separator lines)
+--- @param buf number Buffer handle
+--- @param ns number Namespace for extmarks
+function M.move_up(buf, ns)
+    local cursor = vim.api.nvim_win_get_cursor(0)
+    local row = cursor[1] - 1
+
+    local current_cell, idx = cells.get_current(buf, ns)
+    if not current_cell then return end
+
+    if row <= current_cell.start_row + 1 then
+        if not idx or idx <= 1 then return end
+        local all_cells = cells.get_all(buf, ns)
+        local prev_cell = all_cells[idx - 1]
+        vim.api.nvim_win_set_cursor(0, { prev_cell.end_row + 1, cursor[2] })
+        return
+    end
+
+    local prev_row = row - 1
+    if is_separator(buf, prev_row) then
+        return
+    else
+        vim.api.nvim_win_set_cursor(0, { prev_row + 1, cursor[2] })
+    end
+end
+
+--- Move cursor down, respecting cell boundaries (skips separator lines)
+--- @param buf number Buffer handle
+--- @param ns number Namespace for extmarks
+function M.move_down(buf, ns)
+    local cursor = vim.api.nvim_win_get_cursor(0)
+    local row = cursor[1] - 1
+
+    local current_cell = cells.get_current(buf, ns)
+    if not current_cell then return end
+
+    if row >= current_cell.end_row then
+        cells.goto_next(buf, ns)
+        return
+    end
+
+    local next_row = row + 1
+    if is_separator(buf, next_row) then
+        cells.goto_next(buf, ns)
+    else
+        vim.api.nvim_win_set_cursor(0, { next_row + 1, cursor[2] })
+    end
+end
+
+--- Open line below cursor (like 'o' in vim), staying within cell
+--- @param buf number Buffer handle
+--- @param ns number Namespace for extmarks
+function M.open_below(buf, ns)
+    local cursor = vim.api.nvim_win_get_cursor(0)
+    local row = cursor[1] - 1
+    local cell = cells.get_current(buf, ns)
+
+    if not cell then return end
+
+    vim.api.nvim_buf_set_lines(buf, row + 1, row + 1, false, { "" })
+    cells.refresh_cells(buf, ns)
+    local target_row = row + 2
+    vim.schedule(function()
+        vim.api.nvim_win_set_cursor(0, { target_row, 0 })
+        vim.cmd("startinsert")
+    end)
+end
+
+--- Open line above cursor (like 'O' in vim), staying within cell
+--- @param buf number Buffer handle
+--- @param ns number Namespace for extmarks
+function M.open_above(buf, ns)
+    local cursor = vim.api.nvim_win_get_cursor(0)
+    local row = cursor[1] - 1
+    local cell = cells.get_current(buf, ns)
+
+    if not cell then return end
+
+    local target_row
+    if row == cell.start_row then
+        vim.api.nvim_buf_set_lines(buf, row + 1, row + 1, false, { "" })
+        cells.refresh_cells(buf, ns)
+        target_row = row + 2
+    else
+        vim.api.nvim_buf_set_lines(buf, row, row, false, { "" })
+        cells.refresh_cells(buf, ns)
+        target_row = row + 1
+    end
+    vim.schedule(function()
+        vim.api.nvim_win_set_cursor(0, { target_row, 0 })
+        vim.cmd("startinsert")
+    end)
+end
+
+--- Handle Enter key in insert mode, creating new line within cell
+--- At last line: splits line and moves cursor (extends cell)
+--- Otherwise: passes through to default <CR> behavior
+--- @param buf number Buffer handle
+--- @param ns number Namespace for extmarks
+function M.enter_key(buf, ns)
+    local cursor = vim.api.nvim_win_get_cursor(0)
+    local row = cursor[1] - 1
+    local col = cursor[2]
+    local cell = cells.get_current(buf, ns)
+
+    if not cell then
+        local keys = vim.api.nvim_replace_termcodes("<CR>", true, false, true)
+        vim.api.nvim_feedkeys(keys, "n", false)
+        return
+    end
+
+    local at_last_line = row == cell.end_row
+
+    if at_last_line then
+        -- Default <CR> would create line outside cell boundary
+        local line = vim.api.nvim_buf_get_lines(buf, row, row + 1, false)[1] or ""
+        local before = line:sub(1, col)
+        local after = line:sub(col + 1)
+        vim.api.nvim_buf_set_lines(buf, row, row + 1, false, { before, after })
+        cells.refresh_cells(buf, ns)
+        vim.schedule(function()
+            vim.api.nvim_win_set_cursor(0, { row + 2, 0 })
+        end)
+    else
+        -- Not at last line: use default <CR> behavior
+        local keys = vim.api.nvim_replace_termcodes("<CR>", true, false, true)
+        vim.api.nvim_feedkeys(keys, "n", false)
+    end
+end
+
+--- Delete current line (like 'dd'), with cell protection
+--- Prevents deleting separator lines and last line of cell
+--- @param buf number Buffer handle
+--- @param ns number Namespace for extmarks
+function M.delete_line(buf, ns)
+    local cursor = vim.api.nvim_win_get_cursor(0)
+    local row = cursor[1] - 1
+    local line = vim.api.nvim_buf_get_lines(buf, row, row + 1, false)[1] or ""
+
+    if line:match("^# %%") then
+        vim.notify("Cannot delete cell separator. Use :JupyterDeleteCell to delete cell.", vim.log.levels.WARN)
+        return
+    end
+
+    local cell = cells.get_current(buf, ns)
+    if not cell then return end
+
+    local is_only_content_line = (cell.end_row <= cell.start_row + 1)
+    local is_at_cell_end = (row == cell.end_row)
+
+    if is_only_content_line then
+        vim.api.nvim_buf_set_lines(buf, row, row + 1, false, { "" })
+        vim.api.nvim_win_set_cursor(0, { row + 1, 0 })
+    else
+        vim.api.nvim_buf_set_lines(buf, row, row + 1, false, {})
+        if is_at_cell_end then
+            vim.api.nvim_win_set_cursor(0, { row, 0 })
+        end
+    end
+    cells.refresh_cells(buf, ns)
+end
+
+--- Handle Backspace key (expr mapping), respecting cell boundaries
+--- Returns keycode for <BS> behavior (used with expr=true mapping)
+--- At cell boundary: returns "" to block deletion of separator
+--- @param buf number Buffer handle
+--- @param ns number Namespace for extmarks
+--- @return string Keycode to execute
+function M.backspace(buf, ns)
+    local cursor = vim.api.nvim_win_get_cursor(0)
+    local row = cursor[1] - 1
+    local col = cursor[2]
+
+    local cell = cells.get_current(buf, ns)
+    if cell and row == (cell.start_row + 1) and col == 0 then
+        return ""
+    end
+
+    -- Handle nvim-autopairs integration if available, to properly trigger autopairs on backspace
+    local ok, autopairs = pcall(require, "nvim-autopairs")
+    if ok then
+        return autopairs.autopairs_bs()
+    end
+
+    return vim.api.nvim_replace_termcodes("<BS>", true, false, true)
+end
+
 --- Navigate to next cell
 --- @param buf number Buffer handle
 --- @param ns number Namespace for extmarks

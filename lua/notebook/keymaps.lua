@@ -26,6 +26,13 @@ M.action_descriptions = {
     execute_cells_below = "Execute cells below",
     execute_cells_above = "Execute cells above",
     interrupt_kernel = "Interrupt kernel",
+    move_up = "Move up",
+    move_down = "Move down",
+    open_below = "Open line below",
+    open_above = "Open line above",
+    enter_key = "Enter key in insert mode",
+    delete_line = "Delete line",
+    backspace = "Backspace",
 }
 
 local function setup_action_keymap(buf, action_fn, action_name, keys, modes, opts)
@@ -124,6 +131,127 @@ function M.setup(buf, ns, actions, config)
     setup_action_keymap(buf, function()
         actions.interrupt_kernel(buf)
     end, "interrupt_kernel", { "<leader>ji" }, { "n" })
+end
+
+--- Setup edit restriction keymaps and cursor constraints
+--- Prevents editing separator lines and constrains cursor to content.
+--- @param buf number Buffer handle
+--- @param ns number Namespace for extmarks
+--- @param actions table Actions module
+function M.setup_edit_restrictions(buf, ns, actions)
+    setup_action_keymap(buf, function()
+        actions.move_up(buf, ns)
+    end, "move_up", { "k", "<Up>" }, { "n", "v" })
+
+    setup_action_keymap(buf, function()
+        actions.move_down(buf, ns)
+    end, "move_down", { "j", "<Down>" }, { "n", "v" })
+
+    setup_action_keymap(buf, function()
+        actions.open_below(buf, ns)
+    end, "open_below", { "o" }, { "n" })
+
+    setup_action_keymap(buf, function()
+        actions.enter_key(buf, ns)
+    end, "enter_key", { "<CR>" }, { "i" })
+
+    setup_action_keymap(buf, function()
+        actions.open_above(buf, ns)
+    end, "open_above", { "O" }, { "n" })
+
+    -- Fix which-key's timeout on `dd`, avoid unexpected deletion behavior
+    vim.keymap.set("o", "d", function()
+        local op = vim.v.operator
+        vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<Esc>", true, false, true), "n", false)
+        if op == "d" then
+            vim.schedule(function()
+                actions.delete_line(buf, ns)
+            end)
+        end
+    end, { buffer = buf, silent = true })
+
+    -- Deferred <BS> setup: Wait for InsertEnter to avoid conflicts with nvim-autopairs
+    vim.api.nvim_create_autocmd("InsertEnter", {
+        buffer = buf,
+        once = true,
+        callback = function()
+            vim.schedule(function()
+                pcall(vim.keymap.del, "i", "<BS>", { buffer = buf })
+                vim.keymap.set("i", "<BS>", function()
+                    return actions.backspace(buf, ns)
+                end, { buffer = buf, expr = true, replace_keycodes = false, desc = "Backspace (protected)" })
+            end)
+        end,
+    })
+
+    -- Constrain cursor to content lines (prevent landing on separator lines)
+    -- This runs on every CursorMoved/CursorMovedI event
+    -- Cases handled:
+    -- 1. Cursor outside any cell (e.g., after deletion) -> snap to nearest cell
+    -- 2. Cursor on separator line (row == cell.start_row) -> move to first content line
+    -- The +2 offset accounts for: separator at start_row, first content at start_row+1,
+    -- and 1-indexed cursor API vs 0-indexed row numbers
+    local cells = require("notebook.cells")
+    local constraining = false
+    local function constrain_cursor()
+        if constraining then return end
+        constraining = true
+
+        local line_count = vim.api.nvim_buf_line_count(buf)
+        if line_count == 0 then
+            constraining = false
+            return
+        end
+
+        local cursor = vim.api.nvim_win_get_cursor(0)
+        local row = cursor[1] - 1
+        local cell = cells.get_current(buf, ns)
+
+        if not cell then
+            local all_cells = cells.get_all(buf, ns)
+            if #all_cells == 0 then
+                constraining = false
+                return
+            end
+
+            local nearest_cell = nil
+            local min_dist = math.huge
+
+            for _, c in ipairs(all_cells) do
+                local dist_to_start = math.abs(row - c.start_row)
+                local dist_to_end = math.abs(row - c.end_row)
+                local dist = math.min(dist_to_start, dist_to_end)
+
+                if dist < min_dist then
+                    min_dist = dist
+                    nearest_cell = c
+                end
+            end
+
+            if nearest_cell then
+                local target_row
+                if row < nearest_cell.start_row then
+                    target_row = math.min(nearest_cell.start_row + 2, nearest_cell.end_row + 1, line_count)
+                else
+                    target_row = math.min(nearest_cell.end_row + 1, line_count)
+                end
+                vim.api.nvim_win_set_cursor(0, { target_row, 0 })
+            end
+            constraining = false
+            return
+        end
+
+        if row == cell.start_row then
+            local target_row = math.min(cell.start_row + 2, cell.end_row + 1, line_count)
+            vim.api.nvim_win_set_cursor(0, { target_row, 0 })
+        end
+        constraining = false
+    end
+
+    vim.api.nvim_create_autocmd({ "CursorMoved", "CursorMovedI" }, {
+        buffer = buf,
+        callback = constrain_cursor,
+    })
 end
 
 return M
