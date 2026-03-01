@@ -180,7 +180,7 @@ function M.show_float(buf, outputs, cell_id)
 
     if #lines == 0 and not image_data then return end
 
-    local height = math.min(math.max(#lines + 2, 1), max_height)
+    local height = math.min(#lines + 2, max_height)
 
     local float_buf = vim.api.nvim_create_buf(false, true)
     vim.api.nvim_buf_set_lines(float_buf, 0, -1, false, lines)
@@ -253,6 +253,58 @@ end
 function M.clear_all(buf)
     vim.b[buf].cell_outputs = {}
     vim.api.nvim_buf_clear_namespace(buf, output_ns, 0, -1)
+end
+
+--- Show kernel variables in floating window
+--- @param variables table<string, {type: string, value: string}> Variable info from kernel
+function M.show_variables(variables)
+    local lines = { "Variables:", "" }
+
+    for name, info in pairs(variables) do
+        table.insert(lines, string.format("  %s: %s = %s", name, info.type, info.value))
+    end
+
+    if #lines == 2 then table.insert(lines, "  (no variables)") end
+
+    local buf = vim.api.nvim_create_buf(false, true)
+    vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+
+    local width = math.min(80, vim.o.columns - 4)
+    local height = math.min(#lines + 2, 20)
+
+    local win = vim.api.nvim_open_win(buf, true, {
+        relative = "editor",
+        row = math.floor((vim.o.lines - height) / 2),
+        col = math.floor((vim.o.columns - width) / 2),
+        width = width,
+        height = height,
+        style = "minimal",
+        border = "rounded",
+        title = " Variables ",
+        title_pos = "center",
+        footer = " q: close ",
+        footer_pos = "center",
+    })
+
+    vim.bo[buf].modifiable = false
+    vim.wo[win].cursorline = vim.go.cursorline
+    vim.wo[win].number = vim.go.number
+    vim.wo[win].relativenumber = vim.go.relativenumber
+
+    vim.keymap.set("n", "q", function()
+        vim.api.nvim_win_close(win, true)
+    end, { buffer = buf })
+end
+
+--- Show variable inspection in hover float
+--- @param info {info: string} Inspection result from kernel
+function M.show_hover(info)
+    local lines = vim.split(info.info or "No info available", "\n")
+
+    vim.lsp.util.open_floating_preview(lines, "python", {
+        border = "rounded",
+        focusable = true,
+    })
 end
 
 return M

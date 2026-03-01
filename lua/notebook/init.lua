@@ -40,6 +40,7 @@ function M.setup(opts)
         group = group,
         pattern = "*.ipynb",
         callback = function(args)
+            require("notebook.kernel").disconnect(args.buf)
             require("notebook.image").clear_buffer(args.buf)
         end,
     })

@@ -17,6 +17,10 @@ M.action_descriptions = {
     toggle_output = "Toggle output",
     clear_cell_output = "Clear cell output",
     clear_all_outputs = "Clear all outputs",
+    select_kernel = "Select Python interpreter",
+    restart_kernel = "Restart kernel",
+    show_variables = "Show variables",
+    inspect_variable = "Inspect variable",
 }
 
 local function setup_action_keymap(buf, action_fn, action_name, keys, modes, opts)
@@ -79,6 +83,22 @@ function M.setup(buf, ns, actions)
     setup_action_keymap(buf, function()
         actions.clear_all_outputs(buf, ns)
     end, "clear_all_outputs", { "<leader>jC" }, { "n" })
+
+    setup_action_keymap(buf, function()
+        actions.select_kernel(buf)
+    end, "select_kernel", { "<leader>jk" }, { "n" })
+
+    setup_action_keymap(buf, function()
+        actions.restart_kernel(buf)
+    end, "restart_kernel", { "<leader>jr" }, { "n" })
+
+    setup_action_keymap(buf, function()
+        actions.show_variables(buf)
+    end, "show_variables", { "<leader>jv" }, { "n" })
+
+    setup_action_keymap(buf, function()
+        actions.inspect_variable(buf)
+    end, "inspect_variable", { "<leader>jh" }, { "n" })
 end
 
 return M
