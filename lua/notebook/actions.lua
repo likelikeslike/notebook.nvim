@@ -201,6 +201,109 @@ function M.backspace(buf, ns)
     return vim.api.nvim_replace_termcodes("<BS>", true, false, true)
 end
 
+--- Delete from cursor to end (dG) / start (dgg) inside cell
+--- @param buf number Buffer handle
+--- @param ns number Namespace for extmarks
+--- @param to string "start" or "end" indicating the direction of deletion
+function M.delete_in_cell(buf, ns, to)
+    local cursor = vim.api.nvim_win_get_cursor(0)
+    local row = cursor[1] - 1
+
+    local cell = cells.get_current(buf, ns)
+    if not cell then return end
+
+    if row <= cell.start_row then return end
+
+    local start_row, end_row
+    if to == "end" then
+        start_row = row -- 1
+        end_row = cell.end_row + 1 -- 2
+    elseif to == "start" then
+        start_row = cell.start_row + 1
+        end_row = row + 1
+    else
+        return
+    end
+
+    local deleted = vim.api.nvim_buf_get_lines(buf, start_row, end_row, false)
+    vim.fn.setreg('"', table.concat(deleted, "\n"), "l")
+
+    if end_row - start_row == 1 then
+        -- Only one line, same as delete_line behavior
+        vim.api.nvim_buf_set_lines(buf, start_row, end_row, false, { "" })
+        vim.api.nvim_win_set_cursor(0, { start_row + 1, 0 })
+    else
+        vim.api.nvim_buf_set_lines(buf, start_row, end_row, false, {})
+        vim.api.nvim_win_set_cursor(0, { start_row, 0 })
+    end
+
+    cells.refresh_cells(buf, ns)
+end
+
+--- Yank from cursor to end (yG) / start (ygg) inside cell
+--- @param buf number Buffer handle
+--- @param ns number Namespace for extmarks
+--- @param to string "start" or "end" indicating the direction of yanking
+function M.yank_in_cell(buf, ns, to)
+    local cursor = vim.api.nvim_win_get_cursor(0)
+    local row = cursor[1] - 1
+
+    local cell = cells.get_current(buf, ns)
+    if not cell then return end
+
+    if row <= cell.start_row then return end
+
+    local start_row, end_row
+    if to == "end" then
+        start_row = row
+        end_row = cell.end_row + 1
+    elseif to == "start" then
+        start_row = cell.start_row + 1
+        end_row = row + 1
+    else
+        return
+    end
+
+    local yanked = vim.api.nvim_buf_get_lines(buf, start_row, end_row, false)
+    vim.fn.setreg('"', table.concat(yanked, "\n"), "l")
+
+    local bg_ns = vim.api.nvim_create_namespace("jupyter_notebook_bg")
+    local saved_marks = {}
+    for r = start_row, end_row - 1 do
+        local extmarks = vim.api.nvim_buf_get_extmarks(buf, bg_ns, { r, 0 }, { r, -1 }, {})
+        for _, mark in ipairs(extmarks) do
+            table.insert(saved_marks, mark)
+            vim.api.nvim_buf_del_extmark(buf, bg_ns, mark[1])
+        end
+    end
+
+    -- Fix for yank highlighting
+    local yank_ns = vim.api.nvim_create_namespace("notebook_yank_highlight")
+    for i, line in ipairs(yanked) do
+        local r = start_row + i - 1
+        if #line > 0 then
+            vim.api.nvim_buf_set_extmark(buf, yank_ns, r, 0, {
+                end_col = #line,
+                hl_group = "IncSearch",
+            })
+        end
+    end
+
+    vim.defer_fn(function()
+        vim.api.nvim_buf_clear_namespace(buf, yank_ns, 0, -1)
+        local bg_hl = cell.cell_type == "markdown" and "JupyterNotebookCellBgMarkdown"
+            or "JupyterNotebookCellBg"
+        for r = start_row, end_row - 1 do
+            vim.api.nvim_buf_set_extmark(buf, bg_ns, r, 0, {
+                line_hl_group = bg_hl,
+                priority = 1,
+            })
+        end
+    end, 150)
+
+    vim.notify(#yanked .. " line(s) yanked", vim.log.levels.INFO)
+end
+
 --- Navigate to next cell
 --- @param buf number Buffer handle
 --- @param ns number Namespace for extmarks

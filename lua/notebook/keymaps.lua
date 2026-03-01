@@ -252,6 +252,45 @@ function M.setup_edit_restrictions(buf, ns, actions)
         buffer = buf,
         callback = constrain_cursor,
     })
+
+    -- Operator-pending mode mappings for which-key compatibility
+    vim.keymap.set("o", "G", function()
+        local op = vim.v.operator
+        vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<Esc>", true, false, true), "n", false)
+        vim.schedule(function()
+            if op == "y" then
+                actions.yank_in_cell(buf, ns, "end")
+            elseif op == "d" then
+                actions.delete_in_cell(buf, ns, "end")
+            end
+        end)
+    end, { buffer = buf, silent = true })
+
+    vim.keymap.set("o", "gg", function()
+        local op = vim.v.operator
+        vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<Esc>", true, false, true), "n", false)
+        vim.schedule(function()
+            if op == "y" then
+                actions.yank_in_cell(buf, ns, "start")
+            elseif op == "d" then
+                actions.delete_in_cell(buf, ns, "start")
+            end
+        end)
+    end, { buffer = buf, silent = true })
+
+    vim.keymap.set("v", "G", function()
+        local cell = cells.get_current(buf, ns)
+        if not cell then return end
+        local last_line = vim.api.nvim_buf_get_lines(buf, cell.end_row, cell.end_row + 1, false)[1] or ""
+        local end_col = math.max(#last_line - 1, 0)
+        vim.api.nvim_win_set_cursor(0, { cell.end_row + 1, end_col })
+    end, { buffer = buf, silent = true })
+
+    vim.keymap.set("v", "gg", function()
+        local cell = cells.get_current(buf, ns)
+        if not cell then return end
+        vim.api.nvim_win_set_cursor(0, { cell.start_row + 2, 0 })
+    end, { buffer = buf, silent = true })
 end
 
 return M
