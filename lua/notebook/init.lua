@@ -5,6 +5,7 @@ M.config = {
     lsp = {},
     diagnostics = nil,
     yank_highlight = true,
+    keys = {},
 }
 
 local notebook = require("notebook.notebook")

@@ -39,7 +39,7 @@ function M.load(buf, ns, config)
     M.setup_lsp(buf, ns, ft, config)
 
     keymaps.setup(buf, ns, actions, config)
-    keymaps.setup_edit_restrictions(buf, ns, actions)
+    keymaps.setup_edit_restrictions(buf, ns, actions, config)
 
     local refresh_timer = vim.uv.new_timer()
     vim.api.nvim_create_autocmd({ "TextChanged", "TextChangedI" }, {

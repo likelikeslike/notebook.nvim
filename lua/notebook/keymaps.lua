@@ -35,9 +35,20 @@ M.action_descriptions = {
     backspace = "Backspace",
 }
 
-local function setup_action_keymap(buf, action_fn, action_name, keys, modes, opts)
+local function get_keys_for_action(config, action_name)
+    local keys = config.keys or {}
+    local result = {}
+    for key, action in pairs(keys) do
+        if action == action_name then table.insert(result, key) end
+    end
+    return result
+end
+
+local function setup_action_keymap(buf, config, action_fn, action_name, default_keys, modes, opts)
     modes = modes or { "n" }
     opts = opts or {}
+    local keys = get_keys_for_action(config, action_name)
+    if #keys == 0 then keys = default_keys end
     local desc = M.action_descriptions[action_name] or action_name
     for _, key in ipairs(keys) do
         vim.keymap.set(modes, key, function()
@@ -52,83 +63,83 @@ end
 --- @param actions table Actions module
 --- @param config table Plugin configuration
 function M.setup(buf, ns, actions, config)
-    setup_action_keymap(buf, function()
+    setup_action_keymap(buf, config, function()
         actions.next_cell(buf, ns)
     end, "next_cell", { "]c" }, { "n" })
 
-    setup_action_keymap(buf, function()
+    setup_action_keymap(buf, config, function()
         actions.prev_cell(buf, ns)
     end, "prev_cell", { "[c" }, { "n" })
 
-    setup_action_keymap(buf, function()
+    setup_action_keymap(buf, config, function()
         actions.add_cell_below(buf, ns)
     end, "add_cell_below", { "<leader>ja" }, { "n" })
 
-    setup_action_keymap(buf, function()
+    setup_action_keymap(buf, config, function()
         actions.add_cell_above(buf, ns)
     end, "add_cell_above", { "<leader>jA" }, { "n" })
 
-    setup_action_keymap(buf, function()
+    setup_action_keymap(buf, config, function()
         actions.delete_cell(buf, ns)
     end, "delete_cell", { "<leader>jd" }, { "n" })
 
-    setup_action_keymap(buf, function()
+    setup_action_keymap(buf, config, function()
         actions.toggle_cell_type(buf, ns)
     end, "toggle_cell_type", { "<leader>jt" }, { "n" })
 
-    setup_action_keymap(buf, function()
+    setup_action_keymap(buf, config, function()
         actions.merge_cell_below(buf, ns)
     end, "merge_cell_below", { "<leader>jm" }, { "n" })
 
-    setup_action_keymap(buf, function()
+    setup_action_keymap(buf, config, function()
         actions.merge_cell_above(buf, ns)
     end, "merge_cell_above", { "<leader>jM" }, { "n" })
 
-    setup_action_keymap(buf, function()
+    setup_action_keymap(buf, config, function()
         actions.toggle_output(buf, ns)
     end, "toggle_output", { "<leader>jo" }, { "n" })
 
-    setup_action_keymap(buf, function()
+    setup_action_keymap(buf, config, function()
         actions.clear_cell_output(buf, ns)
     end, "clear_cell_output", { "<leader>jc" }, { "n" })
 
-    setup_action_keymap(buf, function()
+    setup_action_keymap(buf, config, function()
         actions.clear_all_outputs(buf, ns)
     end, "clear_all_outputs", { "<leader>jC" }, { "n" })
 
-    setup_action_keymap(buf, function()
+    setup_action_keymap(buf, config, function()
         actions.select_kernel(buf, config, ns)
     end, "select_kernel", { "<leader>jk" }, { "n" })
 
-    setup_action_keymap(buf, function()
+    setup_action_keymap(buf, config, function()
         actions.restart_kernel(buf)
     end, "restart_kernel", { "<leader>jr" }, { "n" })
 
-    setup_action_keymap(buf, function()
+    setup_action_keymap(buf, config, function()
         actions.show_variables(buf)
     end, "show_variables", { "<leader>jv" }, { "n" })
 
-    setup_action_keymap(buf, function()
+    setup_action_keymap(buf, config, function()
         actions.inspect_variable(buf)
     end, "inspect_variable", { "<leader>jh" }, { "n" })
 
-    setup_action_keymap(buf, function()
+    setup_action_keymap(buf, config, function()
         actions.execute_cell(buf, ns, config.python)
     end, "execute_cell", { "<leader>jx" }, { "n" })
 
-    setup_action_keymap(buf, function()
+    setup_action_keymap(buf, config, function()
         actions.execute_all_cells(buf, ns, config.python)
     end, "execute_all_cells", { "<leader>jX" }, { "n" })
 
-    setup_action_keymap(buf, function()
+    setup_action_keymap(buf, config, function()
         actions.execute_cells_below(buf, ns, config.python)
     end, "execute_cells_below", { "<leader>jb" }, { "n" })
 
-    setup_action_keymap(buf, function()
+    setup_action_keymap(buf, config, function()
         actions.execute_cells_above(buf, ns, config.python)
     end, "execute_cells_above", { "<leader>jB" }, { "n" })
 
-    setup_action_keymap(buf, function()
+    setup_action_keymap(buf, config, function()
         actions.interrupt_kernel(buf)
     end, "interrupt_kernel", { "<leader>ji" }, { "n" })
 end
@@ -138,24 +149,24 @@ end
 --- @param buf number Buffer handle
 --- @param ns number Namespace for extmarks
 --- @param actions table Actions module
-function M.setup_edit_restrictions(buf, ns, actions)
-    setup_action_keymap(buf, function()
+function M.setup_edit_restrictions(buf, ns, actions, config)
+    setup_action_keymap(buf, config, function()
         actions.move_up(buf, ns)
     end, "move_up", { "k", "<Up>" }, { "n", "v" })
 
-    setup_action_keymap(buf, function()
+    setup_action_keymap(buf, config, function()
         actions.move_down(buf, ns)
     end, "move_down", { "j", "<Down>" }, { "n", "v" })
 
-    setup_action_keymap(buf, function()
+    setup_action_keymap(buf, config, function()
         actions.open_below(buf, ns)
     end, "open_below", { "o" }, { "n" })
 
-    setup_action_keymap(buf, function()
+    setup_action_keymap(buf, config, function()
         actions.enter_key(buf, ns)
     end, "enter_key", { "<CR>" }, { "i" })
 
-    setup_action_keymap(buf, function()
+    setup_action_keymap(buf, config, function()
         actions.open_above(buf, ns)
     end, "open_above", { "O" }, { "n" })
 
