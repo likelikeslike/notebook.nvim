@@ -14,7 +14,8 @@ local output = require("notebook.output")
 --- @param buf number Buffer handle
 --- @param notebook table Parsed notebook data from ipynb.load()
 --- @param ns number Namespace for cell extmarks
-function M.notebook(buf, notebook, ns)
+--- @param max_lines number Maximum number of lines to display for each output
+function M.notebook(buf, notebook, ns, max_lines)
     vim.api.nvim_buf_clear_namespace(buf, ns, 0, -1)
     vim.bo[buf].modifiable = true
 
@@ -91,7 +92,7 @@ function M.notebook(buf, notebook, ns)
 
     local decor_ns = vim.api.nvim_create_namespace("jupyter_notebook_decor")
     M.apply_decorations(buf, decor_ns, cell_ranges)
-    M.render_outputs(buf, ns)
+    M.render_outputs(buf, ns, max_lines)
 end
 
 --- Apply visual decorations to cells
@@ -143,7 +144,8 @@ end
 --- Called on load and after cell refresh to display stored outputs.
 --- @param buf number Buffer handle
 --- @param ns number Namespace for cell extmarks
-function M.render_outputs(buf, ns)
+--- @param max_lines number Maximum number of lines to display for each output
+function M.render_outputs(buf, ns, max_lines)
     local output_ns = vim.api.nvim_create_namespace("jupyter_notebook_output")
     vim.api.nvim_buf_clear_namespace(buf, output_ns, 0, -1)
 
@@ -160,7 +162,7 @@ function M.render_outputs(buf, ns)
             if output_data and output_data.outputs and #output_data.outputs > 0 then
                 local end_row = details.end_row or 0
                 local virt_lines =
-                    output.format_outputs(output_data.outputs, output_data.execution_count, output_data.elapsed)
+                    output.format_outputs(output_data.outputs, max_lines, output_data.execution_count, output_data.elapsed)
                 if #virt_lines > 0 then
                     vim.api.nvim_buf_set_extmark(buf, output_ns, end_row, 0, {
                         virt_lines = virt_lines,

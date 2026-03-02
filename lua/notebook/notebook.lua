@@ -25,7 +25,7 @@ function M.load(buf, ns, config)
     end
 
     vim.b[buf].notebook = notebook
-    render.notebook(buf, notebook, ns)
+    render.notebook(buf, notebook, ns, config.max_output_lines)
 
     vim.bo[buf].modified = false
     vim.bo[buf].buftype = "acwrite"
