@@ -169,9 +169,7 @@ function M.delete_line(buf, ns)
         vim.api.nvim_win_set_cursor(0, { row + 1, 0 })
     else
         vim.api.nvim_buf_set_lines(buf, row, row + 1, false, {})
-        if is_at_cell_end then
-            vim.api.nvim_win_set_cursor(0, { row, 0 })
-        end
+        if is_at_cell_end then vim.api.nvim_win_set_cursor(0, { row, 0 }) end
     end
     cells.refresh_cells(buf, ns)
 end
@@ -188,15 +186,11 @@ function M.backspace(buf, ns)
     local col = cursor[2]
 
     local cell = cells.get_current(buf, ns)
-    if cell and row == (cell.start_row + 1) and col == 0 then
-        return ""
-    end
+    if cell and row == (cell.start_row + 1) and col == 0 then return "" end
 
     -- Handle nvim-autopairs integration if available, to properly trigger autopairs on backspace
     local ok, autopairs = pcall(require, "nvim-autopairs")
-    if ok then
-        return autopairs.autopairs_bs()
-    end
+    if ok then return autopairs.autopairs_bs() end
 
     return vim.api.nvim_replace_termcodes("<BS>", true, false, true)
 end
@@ -291,8 +285,7 @@ function M.yank_in_cell(buf, ns, to)
 
     vim.defer_fn(function()
         vim.api.nvim_buf_clear_namespace(buf, yank_ns, 0, -1)
-        local bg_hl = cell.cell_type == "markdown" and "JupyterNotebookCellBgMarkdown"
-            or "JupyterNotebookCellBg"
+        local bg_hl = cell.cell_type == "markdown" and "JupyterNotebookCellBgMarkdown" or "JupyterNotebookCellBg"
         for r = start_row, end_row - 1 do
             vim.api.nvim_buf_set_extmark(buf, bg_ns, r, 0, {
                 line_hl_group = bg_hl,

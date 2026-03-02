@@ -174,11 +174,9 @@ function M.setup_edit_restrictions(buf, ns, actions, config)
     vim.keymap.set("o", "d", function()
         local op = vim.v.operator
         vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<Esc>", true, false, true), "n", false)
-        if op == "d" then
-            vim.schedule(function()
-                actions.delete_line(buf, ns)
-            end)
-        end
+        if op == "d" then vim.schedule(function()
+            actions.delete_line(buf, ns)
+        end) end
     end, { buffer = buf, silent = true })
 
     -- Deferred <BS> setup: Wait for InsertEnter to avoid conflicts with nvim-autopairs
@@ -190,7 +188,12 @@ function M.setup_edit_restrictions(buf, ns, actions, config)
                 pcall(vim.keymap.del, "i", "<BS>", { buffer = buf })
                 vim.keymap.set("i", "<BS>", function()
                     return actions.backspace(buf, ns)
-                end, { buffer = buf, expr = true, replace_keycodes = false, desc = "Backspace (protected)" })
+                end, {
+                    buffer = buf,
+                    expr = true,
+                    replace_keycodes = false,
+                    desc = "Backspace (protected)",
+                })
             end)
         end,
     })

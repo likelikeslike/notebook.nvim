@@ -46,11 +46,13 @@ function M.load(buf, ns, config)
         buffer = buf,
         callback = function()
             refresh_timer:stop()
-            refresh_timer:start(150, 0, vim.schedule_wrap(function()
-                if vim.api.nvim_buf_is_valid(buf) then
-                    cells.refresh_cells(buf, ns)
-                end
-            end))
+            refresh_timer:start(
+                150,
+                0,
+                vim.schedule_wrap(function()
+                    if vim.api.nvim_buf_is_valid(buf) then cells.refresh_cells(buf, ns) end
+                end)
+            )
         end,
     })
 
@@ -111,9 +113,7 @@ function M.setup_lsp(buf, ns, ft, config)
         for _, lsp_config in ipairs(lsp_configs) do
             local keys = lsp_config.keys
             local lsp_opts = vim.tbl_extend("force", lsp_config, { keys = nil })
-            if config.python then
-                inject_python_path(lsp_opts, config.python.path)
-            end
+            if config.python then inject_python_path(lsp_opts, config.python.path) end
             vim.lsp.start(lsp_opts, { bufnr = buf })
 
             if keys then
@@ -175,9 +175,7 @@ function M.setup_diagnostic_filter(buf, ns)
         vim.diagnostic.handlers[name] = {
             show = function(namespace, bufnr, diagnostics, opts)
                 local diag_ns = vim.b[bufnr] and vim.b[bufnr].notebook_diag_ns
-                if diag_ns then
-                    diagnostics = cells.filter_markdown_diagnostics(diagnostics, bufnr, diag_ns)
-                end
+                if diag_ns then diagnostics = cells.filter_markdown_diagnostics(diagnostics, bufnr, diag_ns) end
                 orig.show(namespace, bufnr, diagnostics, opts)
             end,
             hide = orig.hide,

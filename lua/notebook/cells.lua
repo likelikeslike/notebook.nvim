@@ -76,7 +76,6 @@ function M.get_current(buf, ns)
     return nil, nil
 end
 
-
 --- Move cursor to next cell (first content line)
 --- @param buf number Buffer handle
 --- @param ns number Namespace for extmarks
@@ -323,8 +322,7 @@ function M.update_from_buffer(buf, notebook, ns)
         local lines = vim.api.nvim_buf_get_lines(buf, cell.start_row + 1, cell.end_row + 1, false)
 
         -- Match by cell_id first; fall back to positional index for notebooks without IDs
-        local orig = (cell.cell_id and orig_by_id[cell.cell_id])
-            or (notebook.cells and notebook.cells[i])
+        local orig = (cell.cell_id and orig_by_id[cell.cell_id]) or (notebook.cells and notebook.cells[i])
         local metadata = orig and orig.metadata or {}
 
         local new_cell = {
@@ -359,9 +357,7 @@ function M.get_markdown_ranges(buf, ns)
     local all_cells = M.get_all(buf, ns)
     local ranges = {}
     for _, cell in ipairs(all_cells) do
-        if cell.cell_type == "markdown" then
-            table.insert(ranges, { cell.start_row, cell.end_row })
-        end
+        if cell.cell_type == "markdown" then table.insert(ranges, { cell.start_row, cell.end_row }) end
     end
     return ranges
 end
@@ -372,9 +368,7 @@ end
 --- @return boolean
 function M.is_in_markdown(lnum, markdown_ranges)
     for _, range in ipairs(markdown_ranges) do
-        if lnum >= range[1] and lnum <= range[2] then
-            return true
-        end
+        if lnum >= range[1] and lnum <= range[2] then return true end
     end
     return false
 end
@@ -390,9 +384,7 @@ function M.filter_markdown_diagnostics(diagnostics, buf, ns)
 
     local filtered = {}
     for _, diag in ipairs(diagnostics) do
-        if not M.is_in_markdown(diag.lnum, markdown_ranges) then
-            table.insert(filtered, diag)
-        end
+        if not M.is_in_markdown(diag.lnum, markdown_ranges) then table.insert(filtered, diag) end
     end
     return filtered
 end

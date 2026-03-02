@@ -26,9 +26,7 @@ function M.notebook(buf, notebook, ns)
         local cell_id = cell._id or utils.generate_cell_id()
         cell._id = cell_id
 
-        if cell.execution_count == vim.NIL then
-            cell.execution_count = nil
-        end
+        if cell.execution_count == vim.NIL then cell.execution_count = nil end
 
         local separator = utils.build_separator(cell.cell_type, cell_id)
         local cell_start = #lines

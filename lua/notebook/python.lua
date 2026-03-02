@@ -22,9 +22,7 @@ end
 
 local function get_python_version(python_path)
     local result = vim.fn.system({ python_path, "--version" })
-    if vim.v.shell_error == 0 and result then
-        return result:match("Python%s+([%d%.]+)") or "unknown"
-    end
+    if vim.v.shell_error == 0 and result then return result:match("Python%s+([%d%.]+)") or "unknown" end
     return "unknown"
 end
 
@@ -68,12 +66,7 @@ local function detect_env_type(python_path)
 
     if path_lower:match("pyenv") then return "pyenv" end
 
-    if
-        path_lower:match("/usr/bin")
-        or path_lower:match("/usr/local")
-    then
-        return "system"
-    end
+    if path_lower:match("/usr/bin") or path_lower:match("/usr/local") then return "system" end
 
     return "unknown"
 end
