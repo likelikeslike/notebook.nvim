@@ -351,4 +351,51 @@ function M.update_from_buffer(buf, notebook, ns)
     return notebook
 end
 
+--- Get line ranges for all markdown cells in the buffer
+--- Used by diagnostic handlers to filter out diagnostics in markdown regions
+--- @param buf number Buffer handle
+--- @param ns number Namespace for extmarks
+--- @return table[] ranges Array of {start_row, end_row} pairs
+function M.get_markdown_ranges(buf, ns)
+    local all_cells = M.get_all(buf, ns)
+    local ranges = {}
+    for _, cell in ipairs(all_cells) do
+        if cell.cell_type == "markdown" then
+            table.insert(ranges, { cell.start_row, cell.end_row })
+        end
+    end
+    return ranges
+end
+
+--- Check if a line number falls within any markdown cell
+--- @param lnum number 0-indexed line number
+--- @param markdown_ranges table[] Ranges from get_markdown_ranges()
+--- @return boolean
+function M.is_in_markdown(lnum, markdown_ranges)
+    for _, range in ipairs(markdown_ranges) do
+        if lnum >= range[1] and lnum <= range[2] then
+            return true
+        end
+    end
+    return false
+end
+
+--- Filter diagnostics to exclude those in markdown cells
+--- @param diagnostics vim.Diagnostic[] Raw diagnostics
+--- @param buf number Buffer handle
+--- @param ns number Namespace for extmarks
+--- @return vim.Diagnostic[] filtered Filtered diagnostics
+function M.filter_markdown_diagnostics(diagnostics, buf, ns)
+    local markdown_ranges = M.get_markdown_ranges(buf, ns)
+    if #markdown_ranges == 0 then return diagnostics end
+
+    local filtered = {}
+    for _, diag in ipairs(diagnostics) do
+        if not M.is_in_markdown(diag.lnum, markdown_ranges) then
+            table.insert(filtered, diag)
+        end
+    end
+    return filtered
+end
+
 return M

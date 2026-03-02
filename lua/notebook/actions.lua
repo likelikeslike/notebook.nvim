@@ -9,6 +9,301 @@ local output = require("notebook.output")
 
 local M = {}
 
+local function is_separator(buf, row)
+    local line = vim.api.nvim_buf_get_lines(buf, row, row + 1, false)[1] or ""
+    return line:match("^# %%") ~= nil
+end
+
+--- Move cursor up, respecting cell boundaries (skips separator lines)
+--- @param buf number Buffer handle
+--- @param ns number Namespace for extmarks
+function M.move_up(buf, ns)
+    local cursor = vim.api.nvim_win_get_cursor(0)
+    local row = cursor[1] - 1
+
+    local current_cell, idx = cells.get_current(buf, ns)
+    if not current_cell then return end
+
+    if row <= current_cell.start_row + 1 then
+        if not idx or idx <= 1 then return end
+        local all_cells = cells.get_all(buf, ns)
+        local prev_cell = all_cells[idx - 1]
+        vim.api.nvim_win_set_cursor(0, { prev_cell.end_row + 1, cursor[2] })
+        return
+    end
+
+    local prev_row = row - 1
+    if is_separator(buf, prev_row) then
+        return
+    else
+        vim.api.nvim_win_set_cursor(0, { prev_row + 1, cursor[2] })
+    end
+end
+
+--- Move cursor down, respecting cell boundaries (skips separator lines)
+--- @param buf number Buffer handle
+--- @param ns number Namespace for extmarks
+function M.move_down(buf, ns)
+    local cursor = vim.api.nvim_win_get_cursor(0)
+    local row = cursor[1] - 1
+
+    local current_cell = cells.get_current(buf, ns)
+    if not current_cell then return end
+
+    if row >= current_cell.end_row then
+        cells.goto_next(buf, ns)
+        return
+    end
+
+    local next_row = row + 1
+    if is_separator(buf, next_row) then
+        cells.goto_next(buf, ns)
+    else
+        vim.api.nvim_win_set_cursor(0, { next_row + 1, cursor[2] })
+    end
+end
+
+--- Open line below cursor (like 'o' in vim), staying within cell
+--- @param buf number Buffer handle
+--- @param ns number Namespace for extmarks
+function M.open_below(buf, ns)
+    local cursor = vim.api.nvim_win_get_cursor(0)
+    local row = cursor[1] - 1
+    local cell = cells.get_current(buf, ns)
+
+    if not cell then return end
+
+    vim.api.nvim_buf_set_lines(buf, row + 1, row + 1, false, { "" })
+    cells.refresh_cells(buf, ns)
+    local target_row = row + 2
+    vim.schedule(function()
+        vim.api.nvim_win_set_cursor(0, { target_row, 0 })
+        vim.cmd("startinsert")
+    end)
+end
+
+--- Open line above cursor (like 'O' in vim), staying within cell
+--- @param buf number Buffer handle
+--- @param ns number Namespace for extmarks
+function M.open_above(buf, ns)
+    local cursor = vim.api.nvim_win_get_cursor(0)
+    local row = cursor[1] - 1
+    local cell = cells.get_current(buf, ns)
+
+    if not cell then return end
+
+    local target_row
+    if row == cell.start_row then
+        vim.api.nvim_buf_set_lines(buf, row + 1, row + 1, false, { "" })
+        cells.refresh_cells(buf, ns)
+        target_row = row + 2
+    else
+        vim.api.nvim_buf_set_lines(buf, row, row, false, { "" })
+        cells.refresh_cells(buf, ns)
+        target_row = row + 1
+    end
+    vim.schedule(function()
+        vim.api.nvim_win_set_cursor(0, { target_row, 0 })
+        vim.cmd("startinsert")
+    end)
+end
+
+--- Handle Enter key in insert mode, creating new line within cell
+--- At last line: splits line and moves cursor (extends cell)
+--- Otherwise: passes through to default <CR> behavior
+--- @param buf number Buffer handle
+--- @param ns number Namespace for extmarks
+function M.enter_key(buf, ns)
+    local cursor = vim.api.nvim_win_get_cursor(0)
+    local row = cursor[1] - 1
+    local col = cursor[2]
+    local cell = cells.get_current(buf, ns)
+
+    if not cell then
+        local keys = vim.api.nvim_replace_termcodes("<CR>", true, false, true)
+        vim.api.nvim_feedkeys(keys, "n", false)
+        return
+    end
+
+    local at_last_line = row == cell.end_row
+
+    if at_last_line then
+        -- Default <CR> would create line outside cell boundary
+        local line = vim.api.nvim_buf_get_lines(buf, row, row + 1, false)[1] or ""
+        local before = line:sub(1, col)
+        local after = line:sub(col + 1)
+        vim.api.nvim_buf_set_lines(buf, row, row + 1, false, { before, after })
+        cells.refresh_cells(buf, ns)
+        vim.schedule(function()
+            vim.api.nvim_win_set_cursor(0, { row + 2, 0 })
+        end)
+    else
+        -- Not at last line: use default <CR> behavior
+        local keys = vim.api.nvim_replace_termcodes("<CR>", true, false, true)
+        vim.api.nvim_feedkeys(keys, "n", false)
+    end
+end
+
+--- Delete current line (like 'dd'), with cell protection
+--- Prevents deleting separator lines and last line of cell
+--- @param buf number Buffer handle
+--- @param ns number Namespace for extmarks
+function M.delete_line(buf, ns)
+    local cursor = vim.api.nvim_win_get_cursor(0)
+    local row = cursor[1] - 1
+    local line = vim.api.nvim_buf_get_lines(buf, row, row + 1, false)[1] or ""
+
+    if line:match("^# %%") then
+        vim.notify("Cannot delete cell separator. Use :JupyterDeleteCell to delete cell.", vim.log.levels.WARN)
+        return
+    end
+
+    local cell = cells.get_current(buf, ns)
+    if not cell then return end
+
+    local is_only_content_line = (cell.end_row <= cell.start_row + 1)
+    local is_at_cell_end = (row == cell.end_row)
+
+    if is_only_content_line then
+        vim.api.nvim_buf_set_lines(buf, row, row + 1, false, { "" })
+        vim.api.nvim_win_set_cursor(0, { row + 1, 0 })
+    else
+        vim.api.nvim_buf_set_lines(buf, row, row + 1, false, {})
+        if is_at_cell_end then
+            vim.api.nvim_win_set_cursor(0, { row, 0 })
+        end
+    end
+    cells.refresh_cells(buf, ns)
+end
+
+--- Handle Backspace key (expr mapping), respecting cell boundaries
+--- Returns keycode for <BS> behavior (used with expr=true mapping)
+--- At cell boundary: returns "" to block deletion of separator
+--- @param buf number Buffer handle
+--- @param ns number Namespace for extmarks
+--- @return string Keycode to execute
+function M.backspace(buf, ns)
+    local cursor = vim.api.nvim_win_get_cursor(0)
+    local row = cursor[1] - 1
+    local col = cursor[2]
+
+    local cell = cells.get_current(buf, ns)
+    if cell and row == (cell.start_row + 1) and col == 0 then
+        return ""
+    end
+
+    -- Handle nvim-autopairs integration if available, to properly trigger autopairs on backspace
+    local ok, autopairs = pcall(require, "nvim-autopairs")
+    if ok then
+        return autopairs.autopairs_bs()
+    end
+
+    return vim.api.nvim_replace_termcodes("<BS>", true, false, true)
+end
+
+--- Delete from cursor to end (dG) / start (dgg) inside cell
+--- @param buf number Buffer handle
+--- @param ns number Namespace for extmarks
+--- @param to string "start" or "end" indicating the direction of deletion
+function M.delete_in_cell(buf, ns, to)
+    local cursor = vim.api.nvim_win_get_cursor(0)
+    local row = cursor[1] - 1
+
+    local cell = cells.get_current(buf, ns)
+    if not cell then return end
+
+    if row <= cell.start_row then return end
+
+    local start_row, end_row
+    if to == "end" then
+        start_row = row -- 1
+        end_row = cell.end_row + 1 -- 2
+    elseif to == "start" then
+        start_row = cell.start_row + 1
+        end_row = row + 1
+    else
+        return
+    end
+
+    local deleted = vim.api.nvim_buf_get_lines(buf, start_row, end_row, false)
+    vim.fn.setreg('"', table.concat(deleted, "\n"), "l")
+
+    if end_row - start_row == 1 then
+        -- Only one line, same as delete_line behavior
+        vim.api.nvim_buf_set_lines(buf, start_row, end_row, false, { "" })
+        vim.api.nvim_win_set_cursor(0, { start_row + 1, 0 })
+    else
+        vim.api.nvim_buf_set_lines(buf, start_row, end_row, false, {})
+        vim.api.nvim_win_set_cursor(0, { start_row, 0 })
+    end
+
+    cells.refresh_cells(buf, ns)
+end
+
+--- Yank from cursor to end (yG) / start (ygg) inside cell
+--- @param buf number Buffer handle
+--- @param ns number Namespace for extmarks
+--- @param to string "start" or "end" indicating the direction of yanking
+function M.yank_in_cell(buf, ns, to)
+    local cursor = vim.api.nvim_win_get_cursor(0)
+    local row = cursor[1] - 1
+
+    local cell = cells.get_current(buf, ns)
+    if not cell then return end
+
+    if row <= cell.start_row then return end
+
+    local start_row, end_row
+    if to == "end" then
+        start_row = row
+        end_row = cell.end_row + 1
+    elseif to == "start" then
+        start_row = cell.start_row + 1
+        end_row = row + 1
+    else
+        return
+    end
+
+    local yanked = vim.api.nvim_buf_get_lines(buf, start_row, end_row, false)
+    vim.fn.setreg('"', table.concat(yanked, "\n"), "l")
+
+    local bg_ns = vim.api.nvim_create_namespace("jupyter_notebook_bg")
+    local saved_marks = {}
+    for r = start_row, end_row - 1 do
+        local extmarks = vim.api.nvim_buf_get_extmarks(buf, bg_ns, { r, 0 }, { r, -1 }, {})
+        for _, mark in ipairs(extmarks) do
+            table.insert(saved_marks, mark)
+            vim.api.nvim_buf_del_extmark(buf, bg_ns, mark[1])
+        end
+    end
+
+    -- Fix for yank highlighting
+    local yank_ns = vim.api.nvim_create_namespace("notebook_yank_highlight")
+    for i, line in ipairs(yanked) do
+        local r = start_row + i - 1
+        if #line > 0 then
+            vim.api.nvim_buf_set_extmark(buf, yank_ns, r, 0, {
+                end_col = #line,
+                hl_group = "IncSearch",
+            })
+        end
+    end
+
+    vim.defer_fn(function()
+        vim.api.nvim_buf_clear_namespace(buf, yank_ns, 0, -1)
+        local bg_hl = cell.cell_type == "markdown" and "JupyterNotebookCellBgMarkdown"
+            or "JupyterNotebookCellBg"
+        for r = start_row, end_row - 1 do
+            vim.api.nvim_buf_set_extmark(buf, bg_ns, r, 0, {
+                line_hl_group = bg_hl,
+                priority = 1,
+            })
+        end
+    end, 150)
+
+    vim.notify(#yanked .. " line(s) yanked", vim.log.levels.INFO)
+end
+
 --- Navigate to next cell
 --- @param buf number Buffer handle
 --- @param ns number Namespace for extmarks
@@ -135,7 +430,8 @@ end
 --- Checks for jupyter_client, offers to install if missing
 --- @param buf number Buffer handle
 --- @param config table Plugin configuration
-function M.select_kernel(buf, config)
+--- @param ns number Namespace for extmarks
+function M.select_kernel(buf, config, ns)
     local python = require("notebook.python")
 
     python.pick_python(function(python)
@@ -156,6 +452,8 @@ function M.select_kernel(buf, config)
 
             kernel.disconnect(buf)
             kernel.connect(buf, python)
+
+            require("notebook.notebook").restart_lsp(buf, ns, config)
 
             vim.notify("Kernel set to: " .. python.path, vim.log.levels.INFO)
         end
@@ -224,8 +522,8 @@ end
 --- Auto-connects to kernel if not connected. Displays streaming output
 --- @param buf number Buffer handle
 --- @param ns number Namespace for extmarks
---- @param python table? Python interpreter info (path and env_type)
-function M.execute_cell(buf, ns, python)
+--- @param config table Plugin configuration
+function M.execute_cell(buf, ns, config)
     local cell_info = cells.get_current(buf, ns)
     if not cell_info then
         vim.notify("No cell found at cursor", vim.log.levels.WARN)
@@ -241,12 +539,12 @@ function M.execute_cell(buf, ns, python)
 
     local function on_done(result, was_interrupted, execution_count)
         local elapsed = (vim.uv.hrtime() - start_time) / 1e9
-        output.display(buf, cell_info, result, ns, elapsed, was_interrupted, execution_count)
+        output.display(buf, cell_info, result, ns, config.max_output_lines, elapsed, was_interrupted, execution_count)
     end
 
     local function on_output(result)
         local elapsed = (vim.uv.hrtime() - start_time) / 1e9
-        output.display(buf, cell_info, result, ns, elapsed)
+        output.display(buf, cell_info, result, ns, config.max_output_lines, elapsed)
     end
 
     local function on_execute_count(count)
@@ -254,7 +552,7 @@ function M.execute_cell(buf, ns, python)
     end
 
     if not kernel.is_connected(buf) then
-        kernel.connect(buf, python, function()
+        kernel.connect(buf, config.python, function()
             kernel.execute(buf, cell_info, on_done, on_output, on_execute_count)
         end)
     else
@@ -267,10 +565,10 @@ end
 --- stops on interrupt, and shows done_msg when complete
 --- @param buf number Buffer handle
 --- @param ns number Namespace for extmarks
---- @param python table? Python interpreter info (path and env_type)
+--- @param config table Plugin configuration
 --- @param filter_fn function(cell): boolean Predicate to select which cells to execute
 --- @param done_msg string Message shown after all cells finish
-local function execute_cell_range(buf, ns, python, filter_fn, done_msg)
+local function execute_cell_range(buf, ns, config, filter_fn, done_msg)
     local all_cells = cells.get_all(buf, ns)
     local code_cells = {}
 
@@ -298,13 +596,13 @@ local function execute_cell_range(buf, ns, python, filter_fn, done_msg)
 
         local function on_done(result, was_interrupted, execution_count)
             local elapsed = (vim.uv.hrtime() - start_time) / 1e9
-            output.display(buf, cell_info, result, ns, elapsed, was_interrupted, execution_count)
+            output.display(buf, cell_info, result, ns, config.max_output_lines, elapsed, was_interrupted, execution_count)
             if not was_interrupted then execute_next(index + 1) end
         end
 
         local function on_output(result)
             local elapsed = (vim.uv.hrtime() - start_time) / 1e9
-            output.display(buf, cell_info, result, ns, elapsed)
+            output.display(buf, cell_info, result, ns, config.max_output_lines, elapsed)
         end
 
         local function on_execute_count(count)
@@ -315,7 +613,7 @@ local function execute_cell_range(buf, ns, python, filter_fn, done_msg)
     end
 
     if not kernel.is_connected(buf) then
-        kernel.connect(buf, python, function()
+        kernel.connect(buf, config.python, function()
             execute_next(1)
         end)
     else
@@ -327,9 +625,9 @@ end
 --- Stops on interrupt. Auto-connects to kernel if needed
 --- @param buf number Buffer handle
 --- @param ns number Namespace for extmarks
---- @param python table? Python interpreter info (path and env_type)
-function M.execute_all_cells(buf, ns, python)
-    execute_cell_range(buf, ns, python, function()
+--- @param config table Plugin configuration
+function M.execute_all_cells(buf, ns, config)
+    execute_cell_range(buf, ns, config, function()
         return true
     end, "All cells executed")
 end
@@ -338,15 +636,15 @@ end
 --- Stops on interrupt. Auto-connects to kernel if needed
 --- @param buf number Buffer handle
 --- @param ns number Namespace for extmarks
---- @param python table? Python interpreter info (path and env_type)
-function M.execute_cells_below(buf, ns, python)
+--- @param config table Plugin configuration
+function M.execute_cells_below(buf, ns, config)
     local current = cells.get_current(buf, ns)
     if not current then
         vim.notify("No cell found at cursor", vim.log.levels.WARN)
         return
     end
 
-    execute_cell_range(buf, ns, python, function(cell)
+    execute_cell_range(buf, ns, config, function(cell)
         return cell.start_row >= current.start_row
     end, "Cells below executed")
 end
@@ -355,15 +653,15 @@ end
 --- Stops on interrupt. Auto-connects to kernel if needed
 --- @param buf number Buffer handle
 --- @param ns number Namespace for extmarks
---- @param python table? Python interpreter info (path and env_type)
-function M.execute_cells_above(buf, ns, python)
+--- @param config table Plugin configuration
+function M.execute_cells_above(buf, ns, config)
     local current = cells.get_current(buf, ns)
     if not current then
         vim.notify("No cell found at cursor", vim.log.levels.WARN)
         return
     end
 
-    execute_cell_range(buf, ns, python, function(cell)
+    execute_cell_range(buf, ns, config, function(cell)
         return cell.start_row <= current.start_row
     end, "Cells above executed")
 end
@@ -446,7 +744,7 @@ function M.setup_commands(notebook)
     end, { desc = "Clear all cell outputs" })
 
     vim.api.nvim_create_user_command("JupyterSelectKernel", function()
-        M.select_kernel(vim.api.nvim_get_current_buf(), config)
+        M.select_kernel(vim.api.nvim_get_current_buf(), config, ns)
     end, { desc = "Select Python interpreter" })
 
     vim.api.nvim_create_user_command("JupyterRestart", function()
@@ -462,19 +760,19 @@ function M.setup_commands(notebook)
     end, { desc = "Inspect variable under cursor" })
 
     vim.api.nvim_create_user_command("JupyterExecuteCell", function()
-        M.execute_cell(vim.api.nvim_get_current_buf(), ns, config.python)
+        M.execute_cell(vim.api.nvim_get_current_buf(), ns, config)
     end, { desc = "Execute current cell" })
 
     vim.api.nvim_create_user_command("JupyterExecuteAll", function()
-        M.execute_all_cells(vim.api.nvim_get_current_buf(), ns, config.python)
+        M.execute_all_cells(vim.api.nvim_get_current_buf(), ns, config)
     end, { desc = "Execute all cells" })
 
     vim.api.nvim_create_user_command("JupyterExecuteBelow", function()
-        M.execute_cells_below(vim.api.nvim_get_current_buf(), ns, config.python)
+        M.execute_cells_below(vim.api.nvim_get_current_buf(), ns, config)
     end, { desc = "Execute from current cell to end" })
 
     vim.api.nvim_create_user_command("JupyterExecuteAbove", function()
-        M.execute_cells_above(vim.api.nvim_get_current_buf(), ns, config.python)
+        M.execute_cells_above(vim.api.nvim_get_current_buf(), ns, config)
     end, { desc = "Execute from start to current cell" })
 
     vim.api.nvim_create_user_command("JupyterInterrupt", function()
