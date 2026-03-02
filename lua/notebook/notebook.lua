@@ -53,6 +53,8 @@ function M.load(buf, ns, config)
             end))
         end,
     })
+
+    if config.yank_highlight then M.setup_yank_highlight(buf, ns) end
 end
 
 --- Save buffer contents back to .ipynb file
@@ -183,6 +185,46 @@ function M.setup_diagnostic_filter(buf, ns)
 
         ::continue::
     end
+end
+
+--- Setup yank highlighting that respects cell background colors
+--- Temporarily removes bg extmarks during highlight, then restores them
+--- @param buf number Buffer handle
+--- @param ns number Namespace for extmarks
+function M.setup_yank_highlight(buf, ns)
+    local bg_ns = vim.api.nvim_create_namespace("jupyter_notebook_bg")
+
+    vim.api.nvim_create_autocmd("TextYankPost", {
+        buffer = buf,
+        callback = function()
+            local start_row = vim.api.nvim_buf_get_mark(buf, "[")[1] - 1
+            local end_row = vim.api.nvim_buf_get_mark(buf, "]")[1] - 1
+
+            for row = start_row, end_row do
+                local extmarks = vim.api.nvim_buf_get_extmarks(buf, bg_ns, { row, 0 }, { row, -1 }, {})
+                for _, mark in ipairs(extmarks) do
+                    vim.api.nvim_buf_del_extmark(buf, bg_ns, mark[1])
+                end
+            end
+
+            vim.hl.on_yank({ timeout = 150 })
+
+            local all_cells = cells.get_all(buf, ns)
+            vim.defer_fn(function()
+                if not vim.api.nvim_buf_is_valid(buf) then return end
+                for _, cell in ipairs(all_cells) do
+                    local bg_hl = cell.cell_type == "markdown" and "JupyterNotebookCellBgMarkdown"
+                        or "JupyterNotebookCellBg"
+                    for line_row = math.max(cell.start_row, start_row), math.min(cell.end_row, end_row) do
+                        vim.api.nvim_buf_set_extmark(buf, bg_ns, line_row, 0, {
+                            line_hl_group = bg_hl,
+                            priority = 1,
+                        })
+                    end
+                end
+            end, 160)
+        end,
+    })
 end
 
 return M

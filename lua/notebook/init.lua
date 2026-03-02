@@ -4,6 +4,7 @@ M.config = {
     python = nil,
     lsp = {},
     diagnostics = nil,
+    yank_highlight = true,
 }
 
 local notebook = require("notebook.notebook")
