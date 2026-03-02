@@ -97,7 +97,7 @@ function M.setup(buf, ns, actions, config)
     end, "clear_all_outputs", { "<leader>jC" }, { "n" })
 
     setup_action_keymap(buf, function()
-        actions.select_kernel(buf, config)
+        actions.select_kernel(buf, config, ns)
     end, "select_kernel", { "<leader>jk" }, { "n" })
 
     setup_action_keymap(buf, function()

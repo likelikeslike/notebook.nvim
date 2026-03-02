@@ -430,7 +430,8 @@ end
 --- Checks for jupyter_client, offers to install if missing
 --- @param buf number Buffer handle
 --- @param config table Plugin configuration
-function M.select_kernel(buf, config)
+--- @param ns number Namespace for extmarks
+function M.select_kernel(buf, config, ns)
     local python = require("notebook.python")
 
     python.pick_python(function(python)
@@ -451,6 +452,8 @@ function M.select_kernel(buf, config)
 
             kernel.disconnect(buf)
             kernel.connect(buf, python)
+
+            require("notebook.notebook").restart_lsp(buf, ns, config)
 
             vim.notify("Kernel set to: " .. python.path, vim.log.levels.INFO)
         end
@@ -741,7 +744,7 @@ function M.setup_commands(notebook)
     end, { desc = "Clear all cell outputs" })
 
     vim.api.nvim_create_user_command("JupyterSelectKernel", function()
-        M.select_kernel(vim.api.nvim_get_current_buf(), config)
+        M.select_kernel(vim.api.nvim_get_current_buf(), config, ns)
     end, { desc = "Select Python interpreter" })
 
     vim.api.nvim_create_user_command("JupyterRestart", function()

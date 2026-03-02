@@ -2,6 +2,8 @@ local M = {}
 
 M.config = {
     python = nil,
+    lsp = {},
+    diagnostics = nil,
 }
 
 local notebook = require("notebook.notebook")
@@ -18,6 +20,7 @@ local function setup_highlights()
 end
 
 function M.setup(opts)
+    M.config = vim.tbl_deep_extend("force", M.config, opts or {})
     M.ns = vim.api.nvim_create_namespace("jupyter_notebook")
 
     setup_highlights()
