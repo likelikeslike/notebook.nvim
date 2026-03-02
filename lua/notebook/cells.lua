@@ -169,7 +169,6 @@ function M.refresh_cells(buf, ns)
     local render = require("notebook.render")
     render.apply_decorations(buf, decor_ns, cell_ranges)
 
-    local config = require("notebook").config or {}
     render.render_outputs(buf, ns)
 end
 
