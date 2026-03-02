@@ -1,0 +1,32 @@
+# IDE files
+.vscode/
+
+# OS-specific
+.DS_Store
+Thumbs.db
+
+# Logs and temporary files
+*.log
+*.tmp
+*.swp
+*.swo
+
+# Python cache
+__pycache__/
+*.py[cod]
+
+# Jupyter Notebook checkpoints
+.ipynb_checkpoints/
+
+# Compiled files
+*.o
+*.so
+
+# Test results
+/test-results/
+/coverage/
+/build/
+/dist/
+tmp.*
+*.tmp
+/tmp/

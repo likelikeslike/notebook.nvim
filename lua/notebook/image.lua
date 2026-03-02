@@ -219,11 +219,9 @@ end
 function M.clear_cell(cell_id)
     local cached = image_cache[cell_id]
     if cached then
-        if cached.image then
-            pcall(function()
-                cached.image:clear()
-            end)
-        end
+        if cached.image then pcall(function()
+            cached.image:clear()
+        end) end
         if cached.tmp_path then vim.fn.delete(cached.tmp_path) end
         image_cache[cell_id] = nil
     end
@@ -233,9 +231,7 @@ end
 --- @param prefix string Cell ID prefix to match
 function M.clear_cell_prefix(prefix)
     for id, _ in pairs(image_cache) do
-        if id:sub(1, #prefix) == prefix then
-            M.clear_cell(id)
-        end
+        if id:sub(1, #prefix) == prefix then M.clear_cell(id) end
     end
 end
 

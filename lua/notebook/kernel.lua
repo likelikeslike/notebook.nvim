@@ -107,11 +107,9 @@ function M.connect(buf, python, callback)
             local pending = kernel.pending_callback
             kernel.pending_callback = nil
             kernel.streaming_callback = nil
-            if pending then
-                vim.schedule(function()
-                    pending(true, result)
-                end)
-            end
+            if pending then vim.schedule(function()
+                pending(true, result)
+            end) end
         elseif kernel.pending_callback then
             local pending = kernel.pending_callback
             kernel.pending_callback = nil

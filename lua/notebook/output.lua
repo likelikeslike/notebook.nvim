@@ -64,11 +64,10 @@ end
 --- @param cell_info CellInfo Cell that was executed
 --- @param outputs table[] Jupyter output messages
 --- @param ns number Namespace for extmarks
---- @param max_lines number Maximum number of text lines to display before truncation
 --- @param elapsed number? Execution time in seconds
 --- @param was_interrupted boolean? Whether execution was interrupted
 --- @param execution_count number? Kernel execution count from execute_reply
-function M.display(buf, cell_info, outputs, ns, max_lines, elapsed, was_interrupted, execution_count)
+function M.display(buf, cell_info, outputs, ns, elapsed, was_interrupted, execution_count)
     if cell_info.cell_id then
         local exec_count = execution_count
         if not exec_count then
@@ -90,7 +89,7 @@ function M.display(buf, cell_info, outputs, ns, max_lines, elapsed, was_interrup
         vim.b[buf].cell_outputs = cell_outputs
     end
 
-    M.render_cell_output(buf, cell_info, outputs, ns, max_lines, elapsed, was_interrupted)
+    M.render_cell_output(buf, cell_info, outputs, ns, elapsed, was_interrupted)
 end
 
 --- Render output as virtual text below cell
@@ -98,10 +97,9 @@ end
 --- @param cell_info CellInfo Cell to render output for
 --- @param outputs table[] Jupyter output messages
 --- @param ns number Namespace for extmarks
---- @param max_lines number Maximum number of text lines to display before truncation
 --- @param elapsed number? Execution time in seconds
 --- @param was_interrupted boolean? Whether execution was interrupted
-function M.render_cell_output(buf, cell_info, outputs, ns, max_lines, elapsed, was_interrupted)
+function M.render_cell_output(buf, cell_info, outputs, ns, elapsed, was_interrupted)
     local extmarks = vim.api.nvim_buf_get_extmarks(buf, ns, 0, -1, { details = true })
 
     for _, mark in ipairs(extmarks) do
@@ -116,7 +114,7 @@ function M.render_cell_output(buf, cell_info, outputs, ns, max_lines, elapsed, w
             local cell_outputs = vim.b[buf].cell_outputs or {}
             local output_data = cell_info.cell_id and cell_outputs[cell_info.cell_id]
             local exec_count = output_data and output_data.execution_count
-            local virt_lines = M.format_outputs(outputs, max_lines, exec_count, elapsed, was_interrupted)
+            local virt_lines = M.format_outputs(outputs, exec_count, elapsed, was_interrupted)
             if #virt_lines > 0 then
                 vim.api.nvim_buf_set_extmark(buf, output_ns, end_row, 0, {
                     virt_lines = virt_lines,
@@ -133,14 +131,14 @@ end
 
 --- Format outputs as virtual line specs for extmark display
 --- @param outputs table[] Jupyter output messages
---- @param max_lines number Maximum number of text lines to display before truncation
 --- @param execution_count number? Kernel execution counter for header
 --- @param elapsed number? Execution time in seconds
 --- @param was_interrupted boolean? Whether execution was interrupted
 --- @return table[] virt_lines Array of {text, hl_group} tuples
-function M.format_outputs(outputs, max_lines, execution_count, elapsed, was_interrupted)
+function M.format_outputs(outputs, execution_count, elapsed, was_interrupted)
     local virt_lines = {}
-    local max_lines = max_lines or 20
+    local config = require("notebook").config or {}
+    local max_lines = config.max_output_lines or 20
     local text_line_count = 0
     local image_count = 0
 

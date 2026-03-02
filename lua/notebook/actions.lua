@@ -169,9 +169,7 @@ function M.delete_line(buf, ns)
         vim.api.nvim_win_set_cursor(0, { row + 1, 0 })
     else
         vim.api.nvim_buf_set_lines(buf, row, row + 1, false, {})
-        if is_at_cell_end then
-            vim.api.nvim_win_set_cursor(0, { row, 0 })
-        end
+        if is_at_cell_end then vim.api.nvim_win_set_cursor(0, { row, 0 }) end
     end
     cells.refresh_cells(buf, ns)
 end
@@ -188,15 +186,11 @@ function M.backspace(buf, ns)
     local col = cursor[2]
 
     local cell = cells.get_current(buf, ns)
-    if cell and row == (cell.start_row + 1) and col == 0 then
-        return ""
-    end
+    if cell and row == (cell.start_row + 1) and col == 0 then return "" end
 
     -- Handle nvim-autopairs integration if available, to properly trigger autopairs on backspace
     local ok, autopairs = pcall(require, "nvim-autopairs")
-    if ok then
-        return autopairs.autopairs_bs()
-    end
+    if ok then return autopairs.autopairs_bs() end
 
     return vim.api.nvim_replace_termcodes("<BS>", true, false, true)
 end
@@ -291,8 +285,7 @@ function M.yank_in_cell(buf, ns, to)
 
     vim.defer_fn(function()
         vim.api.nvim_buf_clear_namespace(buf, yank_ns, 0, -1)
-        local bg_hl = cell.cell_type == "markdown" and "JupyterNotebookCellBgMarkdown"
-            or "JupyterNotebookCellBg"
+        local bg_hl = cell.cell_type == "markdown" and "JupyterNotebookCellBgMarkdown" or "JupyterNotebookCellBg"
         for r = start_row, end_row - 1 do
             vim.api.nvim_buf_set_extmark(buf, bg_ns, r, 0, {
                 line_hl_group = bg_hl,
@@ -434,31 +427,31 @@ end
 function M.select_kernel(buf, config, ns)
     local python = require("notebook.python")
 
-    python.pick_python(function(python)
-        if not python then return end
+    python.pick_python(function(selected_python)
+        if not selected_python then return end
 
         local function setup_kernel()
-            config.python = python
+            config.python = selected_python
 
             local notebook = vim.b[buf].notebook
             if notebook then
                 notebook.metadata.kernelspec = {
                     name = "python3",
-                    display_name = "Python 3 (" .. python.path .. ")",
+                    display_name = "Python 3 (" .. selected_python.path .. ")",
                     language = "python",
                 }
                 vim.b[buf].notebook = notebook
             end
 
             kernel.disconnect(buf)
-            kernel.connect(buf, python)
+            kernel.connect(buf, selected_python)
 
             require("notebook.notebook").restart_lsp(buf, ns, config)
 
-            vim.notify("Kernel set to: " .. python.path, vim.log.levels.INFO)
+            vim.notify("Kernel set to: " .. selected_python.path, vim.log.levels.INFO)
         end
 
-        check_jupyter_installed(python.path, function(installed)
+        check_jupyter_installed(selected_python.path, function(installed)
             if installed then
                 setup_kernel()
             else
@@ -466,7 +459,7 @@ function M.select_kernel(buf, config, ns)
                     prompt = "jupyter_client not found. Install jupyter_client and ipykernel?",
                 }, function(choice)
                     if choice == "Yes" then
-                        install_jupyter(python, function(success)
+                        install_jupyter(selected_python, function(success)
                             if success then setup_kernel() end
                         end)
                     end
@@ -522,8 +515,8 @@ end
 --- Auto-connects to kernel if not connected. Displays streaming output
 --- @param buf number Buffer handle
 --- @param ns number Namespace for extmarks
---- @param config table Plugin configuration
-function M.execute_cell(buf, ns, config)
+--- @param python table? Python interpreter info (path and env_type)
+function M.execute_cell(buf, ns, python)
     local cell_info = cells.get_current(buf, ns)
     if not cell_info then
         vim.notify("No cell found at cursor", vim.log.levels.WARN)
@@ -539,12 +532,12 @@ function M.execute_cell(buf, ns, config)
 
     local function on_done(result, was_interrupted, execution_count)
         local elapsed = (vim.uv.hrtime() - start_time) / 1e9
-        output.display(buf, cell_info, result, ns, config.max_output_lines, elapsed, was_interrupted, execution_count)
+        output.display(buf, cell_info, result, ns, elapsed, was_interrupted, execution_count)
     end
 
     local function on_output(result)
         local elapsed = (vim.uv.hrtime() - start_time) / 1e9
-        output.display(buf, cell_info, result, ns, config.max_output_lines, elapsed)
+        output.display(buf, cell_info, result, ns, elapsed)
     end
 
     local function on_execute_count(count)
@@ -552,7 +545,7 @@ function M.execute_cell(buf, ns, config)
     end
 
     if not kernel.is_connected(buf) then
-        kernel.connect(buf, config.python, function()
+        kernel.connect(buf, python, function()
             kernel.execute(buf, cell_info, on_done, on_output, on_execute_count)
         end)
     else
@@ -565,10 +558,10 @@ end
 --- stops on interrupt, and shows done_msg when complete
 --- @param buf number Buffer handle
 --- @param ns number Namespace for extmarks
---- @param config table Plugin configuration
+--- @param python table? Python interpreter info (path and env_type)
 --- @param filter_fn function(cell): boolean Predicate to select which cells to execute
 --- @param done_msg string Message shown after all cells finish
-local function execute_cell_range(buf, ns, config, filter_fn, done_msg)
+local function execute_cell_range(buf, ns, python, filter_fn, done_msg)
     local all_cells = cells.get_all(buf, ns)
     local code_cells = {}
 
@@ -596,13 +589,13 @@ local function execute_cell_range(buf, ns, config, filter_fn, done_msg)
 
         local function on_done(result, was_interrupted, execution_count)
             local elapsed = (vim.uv.hrtime() - start_time) / 1e9
-            output.display(buf, cell_info, result, ns, config.max_output_lines, elapsed, was_interrupted, execution_count)
+            output.display(buf, cell_info, result, ns, elapsed, was_interrupted, execution_count)
             if not was_interrupted then execute_next(index + 1) end
         end
 
         local function on_output(result)
             local elapsed = (vim.uv.hrtime() - start_time) / 1e9
-            output.display(buf, cell_info, result, ns, config.max_output_lines, elapsed)
+            output.display(buf, cell_info, result, ns, elapsed)
         end
 
         local function on_execute_count(count)
@@ -613,7 +606,7 @@ local function execute_cell_range(buf, ns, config, filter_fn, done_msg)
     end
 
     if not kernel.is_connected(buf) then
-        kernel.connect(buf, config.python, function()
+        kernel.connect(buf, python, function()
             execute_next(1)
         end)
     else
@@ -625,9 +618,9 @@ end
 --- Stops on interrupt. Auto-connects to kernel if needed
 --- @param buf number Buffer handle
 --- @param ns number Namespace for extmarks
---- @param config table Plugin configuration
-function M.execute_all_cells(buf, ns, config)
-    execute_cell_range(buf, ns, config, function()
+--- @param python table? Python interpreter info (path and env_type)
+function M.execute_all_cells(buf, ns, python)
+    execute_cell_range(buf, ns, python, function()
         return true
     end, "All cells executed")
 end
@@ -636,15 +629,15 @@ end
 --- Stops on interrupt. Auto-connects to kernel if needed
 --- @param buf number Buffer handle
 --- @param ns number Namespace for extmarks
---- @param config table Plugin configuration
-function M.execute_cells_below(buf, ns, config)
+--- @param python table? Python interpreter info (path and env_type)
+function M.execute_cells_below(buf, ns, python)
     local current = cells.get_current(buf, ns)
     if not current then
         vim.notify("No cell found at cursor", vim.log.levels.WARN)
         return
     end
 
-    execute_cell_range(buf, ns, config, function(cell)
+    execute_cell_range(buf, ns, python, function(cell)
         return cell.start_row >= current.start_row
     end, "Cells below executed")
 end
@@ -653,15 +646,15 @@ end
 --- Stops on interrupt. Auto-connects to kernel if needed
 --- @param buf number Buffer handle
 --- @param ns number Namespace for extmarks
---- @param config table Plugin configuration
-function M.execute_cells_above(buf, ns, config)
+--- @param python table? Python interpreter info (path and env_type)
+function M.execute_cells_above(buf, ns, python)
     local current = cells.get_current(buf, ns)
     if not current then
         vim.notify("No cell found at cursor", vim.log.levels.WARN)
         return
     end
 
-    execute_cell_range(buf, ns, config, function(cell)
+    execute_cell_range(buf, ns, python, function(cell)
         return cell.start_row <= current.start_row
     end, "Cells above executed")
 end
@@ -760,19 +753,19 @@ function M.setup_commands(notebook)
     end, { desc = "Inspect variable under cursor" })
 
     vim.api.nvim_create_user_command("JupyterExecuteCell", function()
-        M.execute_cell(vim.api.nvim_get_current_buf(), ns, config)
+        M.execute_cell(vim.api.nvim_get_current_buf(), ns, config.python)
     end, { desc = "Execute current cell" })
 
     vim.api.nvim_create_user_command("JupyterExecuteAll", function()
-        M.execute_all_cells(vim.api.nvim_get_current_buf(), ns, config)
+        M.execute_all_cells(vim.api.nvim_get_current_buf(), ns, config.python)
     end, { desc = "Execute all cells" })
 
     vim.api.nvim_create_user_command("JupyterExecuteBelow", function()
-        M.execute_cells_below(vim.api.nvim_get_current_buf(), ns, config)
+        M.execute_cells_below(vim.api.nvim_get_current_buf(), ns, config.python)
     end, { desc = "Execute from current cell to end" })
 
     vim.api.nvim_create_user_command("JupyterExecuteAbove", function()
-        M.execute_cells_above(vim.api.nvim_get_current_buf(), ns, config)
+        M.execute_cells_above(vim.api.nvim_get_current_buf(), ns, config.python)
     end, { desc = "Execute from start to current cell" })
 
     vim.api.nvim_create_user_command("JupyterInterrupt", function()
