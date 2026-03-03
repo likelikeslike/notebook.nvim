@@ -84,3 +84,41 @@ t.describe("cells.filter_markdown_diagnostics", function()
         vim.api.nvim_buf_delete(buf, { force = true })
     end)
 end)
+
+t.describe("diagnostic filter at vim.diagnostic.set", function()
+    t.it("filters markdown diagnostics from count and get", function()
+        local buf = vim.api.nvim_create_buf(false, true)
+        local ns = vim.api.nvim_create_namespace("test_diag_set_filter")
+        local diag_ns = vim.api.nvim_create_namespace("test_diag_source")
+
+        vim.api.nvim_buf_set_lines(buf, 0, -1, false, {
+            "# %% [markdown] id:md1",
+            "# Heading",
+            "Some text",
+            "# %% id:code1",
+            "x = 1",
+        })
+
+        cells.refresh_cells(buf, ns)
+        require("notebook.notebook").setup_diagnostic_filter(buf, ns)
+
+        vim.diagnostic.set(diag_ns, buf, {
+            { lnum = 1, col = 0, message = "md warning", severity = vim.diagnostic.severity.WARN },
+            { lnum = 4, col = 0, message = "code warning", severity = vim.diagnostic.severity.WARN },
+        })
+
+        local stored = vim.diagnostic.get(buf)
+        t.eq(1, #stored, "only code cell diagnostic should be stored")
+        t.eq("code warning", stored[1].message)
+
+        local counts = vim.diagnostic.count(buf)
+        local total = 0
+        for _, v in pairs(counts) do
+            total = total + v
+        end
+        t.eq(1, total, "diagnostic count should exclude markdown cells")
+
+        vim.diagnostic.reset(diag_ns, buf)
+        vim.api.nvim_buf_delete(buf, { force = true })
+    end)
+end)
