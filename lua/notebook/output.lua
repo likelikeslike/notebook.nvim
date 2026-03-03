@@ -381,7 +381,8 @@ function M.show_variables(variables)
     local lines = { "Variables:", "" }
 
     for name, info in pairs(variables) do
-        table.insert(lines, string.format("  %s: %s = %s", name, info.type, info.value))
+        local val = info.value:gsub("\n", " ")
+        table.insert(lines, string.format("  %s: %s = %s", name, info.type, val))
     end
 
     if #lines == 2 then table.insert(lines, "  (no variables)") end
