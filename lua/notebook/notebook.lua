@@ -25,7 +25,7 @@ function M.load(buf, ns, config)
     end
 
     vim.b[buf].notebook = notebook
-    render.notebook(buf, notebook, ns)
+    local cell_ranges = render.notebook(buf, notebook, ns)
 
     vim.bo[buf].modified = false
     vim.bo[buf].buftype = "acwrite"
@@ -36,6 +36,8 @@ function M.load(buf, ns, config)
 
     local ft = notebook.metadata.kernelspec and notebook.metadata.kernelspec.language or "python"
     vim.bo[buf].filetype = ft
+    vim.treesitter.start(buf, ft)
+    render.setup_markdown_highlight(buf, cell_ranges)
     M.setup_lsp(buf, ns, ft, config)
 
     keymaps.setup(buf, ns, actions, config)
