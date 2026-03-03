@@ -395,6 +395,7 @@ local function install_jupyter(python, callback)
 
     vim.notify("Installing jupyter_client and ipykernel...", vim.log.levels.INFO)
 
+    local stderr_lines = {}
     vim.fn.jobstart(install_cmd, {
         on_exit = function(_, exit_code)
             vim.schedule(function()
@@ -402,18 +403,18 @@ local function install_jupyter(python, callback)
                     vim.notify("Jupyter dependencies installed successfully", vim.log.levels.INFO)
                     callback(true)
                 else
-                    vim.notify("Failed to install Jupyter dependencies", vim.log.levels.ERROR)
+                    local msg = "Failed to install Jupyter dependencies"
+                    if #stderr_lines > 0 then msg = msg .. "\n" .. table.concat(stderr_lines, "\n") end
+                    vim.notify(msg, vim.log.levels.ERROR)
                     callback(false)
                 end
             end)
         end,
         on_stderr = function(_, data)
-            if data and #data > 0 and data[1] ~= "" then
-                vim.schedule(function()
-                    for _, line in ipairs(data) do
-                        if line ~= "" and not line:match("^%s*$") then vim.notify(line, vim.log.levels.WARN) end
-                    end
-                end)
+            if data then
+                for _, line in ipairs(data) do
+                    if line ~= "" and not line:match("^%s*$") then table.insert(stderr_lines, line) end
+                end
             end
         end,
     })

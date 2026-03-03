@@ -1,0 +1,572 @@
+*notebook.txt*    Jupyter Notebook integration for Neovim
+
+Author:   likelikeslike
+License:  MIT
+Homepage: https://github.com/likelikeslike/notebook.nvim
+
+==============================================================================
+CONTENTS                                                   *notebook-contents*
+
+  1. Introduction ............................ |notebook-introduction|
+  2. Requirements ............................ |notebook-requirements|
+  3. Installation ............................ |notebook-installation|
+  4. Setup ................................... |notebook-setup|
+  5. Configuration ........................... |notebook-configuration|
+  6. Keymaps ................................. |notebook-keymaps|
+  7. Commands ................................ |notebook-commands|
+  8. Highlights .............................. |notebook-highlights|
+  9. Architecture ............................ |notebook-architecture|
+ 10. Image Support ........................... |notebook-images|
+ 11. LSP Integration ......................... |notebook-lsp|
+
+==============================================================================
+1. INTRODUCTION                                        *notebook-introduction*
+
+notebook.nvim provides native editing of Jupyter notebooks (`.ipynb` files)
+directly inside Neovim. Notebooks are rendered as plain text buffers using
+`# %%` cell separators, with virtual text for outputs, inline image display
+via |image.nvim|, and a real Jupyter kernel connection for code execution.
+
+Key capabilities:
+- Open `.ipynb` files and edit them as structured cell buffers
+- Execute code cells with streaming output display
+- Navigate, add, delete, merge, and toggle cell types
+- Inspect kernel variables and interrupt running executions
+- Display PNG images inline (requires |image.nvim|)
+- LSP support with automatic diagnostic filtering for markdown cells
+- Save back to standard `.ipynb` JSON format
+
+==============================================================================
+2. REQUIREMENTS                                        *notebook-requirements*
+
+Required:
+- Neovim >= 0.10
+- Python 3 interpreter (system, venv, conda, pyenv, or uv)
+- `jupyter_client` and `ipykernel` Python packages
+  (the plugin offers to install them automatically on first kernel selection)
+
+Optional:
+- |image.nvim| for inline PNG image rendering in terminal
+- ImageMagick (`identify` command) for accurate image sizing
+- A terminal emulator with image protocol support (kitty, iTerm2, etc.)
+
+==============================================================================
+3. INSTALLATION                                        *notebook-installation*
+
+With lazy.nvim (minimal): >lua
+    {
+        "likelikeslike/notebook.nvim",
+        event = "BufReadCmd *.ipynb",
+        config = function()
+            require("notebook").setup()
+        end,
+    }
+<
+With lazy.nvim (recommended, with image support and LSP): >lua
+    {
+        "likelikeslike/notebook.nvim",
+        event = "BufReadCmd *.ipynb",
+        dependencies = {
+            { "mason-org/mason.nvim" },
+            {
+                "3rd/image.nvim",
+                event = "BufReadCmd *.ipynb",
+                build = false,
+                opts = {
+                    backend = "kitty",
+                    processor = "magick_cli",
+                    integrations = {},
+                },
+            },
+        },
+        config = function()
+            require("notebook").setup({
+                diagnostics = {
+                    underline = true,
+                    update_in_insert = false,
+                    virtual_text = {
+                        spacing = 4,
+                        source = "if_many",
+                        prefix = "●",
+                    },
+                    severity_sort = true,
+                    signs = {
+                        text = {
+                            [vim.diagnostic.severity.ERROR] = " ",
+                            [vim.diagnostic.severity.WARN] = " ",
+                            [vim.diagnostic.severity.HINT] = " ",
+                            [vim.diagnostic.severity.INFO] = " ",
+                        },
+                    },
+                },
+                lsp = {
+                    python = {
+                        {
+                            name = "basedpyright",
+                            cmd = { vim.fn.exepath("basedpyright-langserver"), "--stdio" },
+                            settings = {
+                                basedpyright = {
+                                    analysis = {
+                                        typeCheckingMode = "basic",
+                                        autoSearchPaths = true,
+                                        useLibraryCodeForTypes = true,
+                                        diagnosticMode = "openFilesOnly",
+                                    },
+                                },
+                            },
+                        },
+                        {
+                            name = "ruff",
+                            cmd = { vim.fn.exepath("ruff"), "server" },
+                            cmd_env = { RUFF_TRACE = "messages" },
+                            init_options = {
+                                settings = { logLevel = "error" },
+                            },
+                            keys = {
+                                {
+                                    "<leader>co",
+                                    function()
+                                        vim.lsp.buf.code_action({
+                                            apply = true,
+                                            context = {
+                                                only = { "source.organizeImports" },
+                                                diagnostics = {},
+                                            },
+                                        })
+                                    end,
+                                    desc = "Organize Imports",
+                                },
+                                {
+                                    "<leader>cf",
+                                    function()
+                                        vim.lsp.buf.code_action({
+                                            apply = true,
+                                            context = {
+                                                only = { "source.fixAll" },
+                                                diagnostics = {},
+                                            },
+                                        })
+                                    end,
+                                    desc = "Fix All",
+                                },
+                            },
+                        },
+                    },
+                },
+            })
+        end,
+    }
+<
+
+==============================================================================
+4. SETUP                                                    *notebook-setup*
+
+                                                         *notebook.setup()*
+Call `require("notebook").setup(opts)` to initialize the plugin.
+
+Minimal setup: >lua
+    require("notebook").setup()
+<
+All options with defaults: >lua
+    require("notebook").setup({
+        python = nil,             -- Set via :JupyterSelectKernel
+        max_output_lines = 20,    -- Virtual text lines before truncation
+        yank_highlight = true,    -- Yank highlight respects cell backgrounds
+        keys = {},                -- Keymap overrides
+        highlights = nil,         -- Highlight overrides
+        diagnostics = nil,        -- vim.diagnostic.config() options
+        lsp = {},                 -- LSP servers per filetype
+    })
+<
+
+==============================================================================
+5. CONFIGURATION                                    *notebook-configuration*
+
+                                                       *NotebookConfig*
+
+python                                          *notebook-config-python*
+    Type: `table|nil`
+    Default: `nil`
+
+    Override the Python interpreter. Normally set via the
+    `:JupyterSelectKernel` command or `select_kernel` keymap action. When
+    nil, the plugin uses the system `python3` as fallback.
+
+    Structure: `{ path = "/path/to/python", env_type = "venv" }`
+
+max_output_lines                        *notebook-config-max_output_lines*
+    Type: `number`
+    Default: `20`
+
+    Maximum number of virtual text lines shown for cell output. Output
+    exceeding this limit is truncated with a "... (truncated)" indicator.
+    Use |:JupyterToggleOutput| to view full output in a floating window.
+
+yank_highlight                          *notebook-config-yank_highlight*
+    Type: `boolean`
+    Default: `true`
+
+    Enable yank highlighting that respects cell background colors. When
+    yanking text, the plugin temporarily removes cell background extmarks
+    to display the default yank highlight, then restores them.
+
+keys                                            *notebook-config-keys*
+    Type: `table`
+    Default: `{}`
+
+    Custom keymap overrides. Keys are vim key sequences, values are
+    action names from |notebook-keymaps|.
+
+    Example: >lua
+        keys = {
+            ["<C-CR>"] = "execute_cell",
+            ["<C-Enter>"] = "execute_cell",
+        }
+<
+    See |notebook-keymaps| for the full list of action names.
+
+highlights                              *notebook-config-highlights*
+    Type: `table|nil`
+    Default: `nil`
+
+    Custom highlight group definitions. See |notebook-highlights| for
+    available groups and their defaults.
+
+    Example: >lua
+        highlights = {
+            cell_bg = { link = "CursorLine" },
+            cell_bg_markdown = { bg = "#24283b" },
+            cell_label = { fg = "#565f89", italic = true },
+            output_border = { link = "FloatBorder" },
+            output_error = { fg = "#db4b4b", bold = true },
+        }
+<
+
+diagnostics                             *notebook-config-diagnostics*
+    Type: `table|nil`
+    Default: `nil`
+
+    Options passed to `vim.diagnostic.config()` for notebook buffers.
+
+    Example: >lua
+        diagnostics = {
+            virtual_text = true,
+            signs = true,
+            underline = true,
+        }
+<
+
+lsp                                              *notebook-config-lsp*
+    Type: `table`
+    Default: `{}`
+
+    LSP server configurations keyed by filetype. Each filetype maps to an
+    array of server configs passed to `vim.lsp.start()`. The plugin
+    automatically injects the selected Python interpreter path into
+    pyright and ruff server settings.
+
+    Each server config may include a `keys` field for buffer-local LSP
+    keymaps: >lua
+        lsp = {
+            python = {
+                {
+                    name = "basedpyright",
+                    cmd = { "basedpyright-langserver", "--stdio" },
+                    root_dir = vim.fn.getcwd(),
+                    keys = {
+                        { "gd", vim.lsp.buf.definition, desc = "Go to definition" },
+                        { "K", vim.lsp.buf.hover, desc = "Hover" },
+                    },
+                },
+            },
+        }
+<
+
+==============================================================================
+6. KEYMAPS                                                *notebook-keymaps*
+
+All keymaps are buffer-local, set only for `.ipynb` buffers.
+
+Navigation ~
+    Keymap      Action          Description
+    `]c`          next_cell       Go to next cell
+    `[c`          prev_cell       Go to previous cell
+    `j` / `<Down>`  move_down       Move down (respects cell boundaries)
+    `k` / `<Up>`    move_up         Move up (respects cell boundaries)
+
+Cell Management ~
+    Keymap       Action             Description
+    `<leader>ja`   add_cell_below     Add code cell below
+    `<leader>jA`   add_cell_above     Add code cell above
+    `<leader>jd`   delete_cell        Delete current cell
+    `<leader>jt`   toggle_cell_type   Toggle code/markdown
+    `<leader>jm`   merge_cell_below   Merge with cell below
+    `<leader>jM`   merge_cell_above   Merge with cell above
+
+Execution ~
+    Keymap       Action               Description
+    `<leader>jx`   execute_cell         Execute current cell
+    `<leader>jX`   execute_all_cells    Execute all cells
+    `<leader>jb`   execute_cells_below  Execute from current to end
+    `<leader>jB`   execute_cells_above  Execute from start to current
+    `<leader>ji`   interrupt_kernel     Interrupt running execution
+
+Kernel ~
+    Keymap       Action            Description
+    `<leader>jk`   select_kernel     Select Python interpreter
+    `<leader>jr`   restart_kernel    Restart kernel
+    `<leader>jv`   show_variables    Show kernel variables
+    `<leader>jh`   inspect_variable  Inspect variable under cursor
+
+Output ~
+    Keymap       Action             Description
+    `<leader>jo`   toggle_output      Toggle floating output window
+    `<leader>jc`   clear_cell_output  Clear current cell output
+    `<leader>jC`   clear_all_outputs  Clear all cell outputs
+
+Editing ~
+    Keymap   Action       Description
+    `o`        open_below   Open line below (within cell)
+    `O`        open_above   Open line above (within cell)
+    `dd`       delete_line  Delete line (protected from separators)
+    `<BS>`     backspace    Backspace (protected at cell boundary)
+    `<CR>`     enter_key    Enter in insert mode (extends cell)
+
+Operator-pending (within cell boundaries) ~
+    `dG`  Delete from cursor to end of cell
+    `dgg` Delete from cursor to start of cell
+    `yG`  Yank from cursor to end of cell
+    `ygg` Yank from cursor to start of cell
+
+Visual mode (within cell boundaries) ~
+    `G`   Select to end of cell
+    `gg`  Select to start of cell
+
+                                              *notebook-custom-keymaps*
+Override any default keymap via the `keys` config option: >lua
+    require("notebook").setup({
+        keys = {
+            ["<C-CR>"] = "execute_cell",
+            ["<leader>nn"] = "next_cell",
+            ["<leader>np"] = "prev_cell",
+        },
+    })
+<
+
+==============================================================================
+7. COMMANDS                                              *notebook-commands*
+
+All commands are registered globally and operate on the current buffer.
+
+Cell Management ~
+
+:JupyterNextCell                                        *:JupyterNextCell*
+    Go to the next cell.
+
+:JupyterPrevCell                                        *:JupyterPrevCell*
+    Go to the previous cell.
+
+:JupyterAddCellBelow                                *:JupyterAddCellBelow*
+    Add a new code cell below the current cell.
+
+:JupyterAddCellAbove                                *:JupyterAddCellAbove*
+    Add a new code cell above the current cell.
+
+:JupyterDeleteCell                                    *:JupyterDeleteCell*
+    Delete the current cell. Cannot delete the last remaining cell.
+
+:JupyterToggleCellType                            *:JupyterToggleCellType*
+    Toggle the current cell between code and markdown.
+
+:JupyterMergeCellBelow                            *:JupyterMergeCellBelow*
+    Merge the current cell with the cell below.
+
+:JupyterMergeCellAbove                            *:JupyterMergeCellAbove*
+    Merge the current cell with the cell above.
+
+Output ~
+
+:JupyterToggleOutput                                *:JupyterToggleOutput*
+    Toggle a floating window showing the full output of the current cell,
+    including rendered images if |image.nvim| is available.
+
+:JupyterClearOutput                                  *:JupyterClearOutput*
+    Clear the output of the current cell.
+
+:JupyterClearAllOutputs                          *:JupyterClearAllOutputs*
+    Clear outputs for all cells in the buffer.
+
+Kernel ~
+
+:JupyterSelectKernel                                *:JupyterSelectKernel*
+    Open a picker to select a Python interpreter. Searches workspace
+    venvs, conda, pyenv, uv, and system PATH. If `jupyter_client` is not
+    installed, offers to install it automatically.
+
+:JupyterRestart                                          *:JupyterRestart*
+    Restart the kernel. Clears all kernel state and variables.
+
+:JupyterVariables                                      *:JupyterVariables*
+    Show all kernel variables in a floating window with type and value.
+
+:JupyterInspect                                          *:JupyterInspect*
+    Inspect the variable under the cursor, showing its type and repr in
+    a hover float.
+
+Execution ~
+
+:JupyterExecuteCell                                  *:JupyterExecuteCell*
+    Execute the current code cell. Auto-connects to kernel if needed.
+    Output streams in real-time as virtual text below the cell.
+
+:JupyterExecuteAll                                    *:JupyterExecuteAll*
+    Execute all code cells sequentially. Stops on interrupt.
+
+:JupyterExecuteBelow                                *:JupyterExecuteBelow*
+    Execute code cells from the current cell to the end of the notebook.
+
+:JupyterExecuteAbove                                *:JupyterExecuteAbove*
+    Execute code cells from the start of the notebook to the current cell.
+
+:JupyterInterrupt                                      *:JupyterInterrupt*
+    Interrupt the currently running kernel execution.
+
+==============================================================================
+8. HIGHLIGHTS                                          *notebook-highlights*
+
+The following highlight groups are used. Override them via the `highlights`
+config option or by calling `vim.api.nvim_set_hl()` after setup.
+
+Highlight Group                        Default Link    Description ~
+`JupyterNotebookCellBg`                 CursorLine      Code cell background
+`JupyterNotebookCellBgMarkdown`         ColorColumn     Markdown cell background
+`JupyterNotebookCellLabel`              Comment         Code cell label (In [n])
+`JupyterNotebookCellLabelMarkdown`      Special         Markdown cell label
+`JupyterNotebookOutputBorder`           FloatBorder     Output box border
+`JupyterNotebookOutput`                 Normal          Output text
+`JupyterNotebookOutputResult`           String          Execute result text
+`JupyterNotebookOutputError`            DiagnosticError Error output text
+
+Example override: >lua
+    require("notebook").setup({
+        highlights = {
+            cell_bg = { link = "CursorLine" },
+            cell_bg_markdown = { bg = "#24283b" },
+            cell_label = { fg = "#565f89", italic = true },
+            output_border = { link = "FloatBorder" },
+            output_error = { fg = "#db4b4b", bold = true },
+        },
+    })
+<
+
+==============================================================================
+9. ARCHITECTURE                                      *notebook-architecture*
+
+Data Flow ~
+
+1. BufReadCmd: `.ipynb` JSON is parsed by `ipynb.load()`, then
+   `render.notebook()` converts cells to buffer text with `# %%`
+   separators and sets up extmarks for cell tracking.
+
+2. Editing: Cell boundaries are tracked via extmarks. On every
+   `TextChanged` / `TextChangedI`, `cells.refresh_cells()` re-scans the
+   buffer for `# %%` lines and rebuilds extmarks (debounced at 150ms).
+
+3. Execution: Buffer text from the cell is sent to the Jupyter kernel
+   via a Python subprocess (`jupyter_kernel_server.py`). Output streams
+   back as JSON messages and is rendered as virtual text.
+
+4. BufWriteCmd: `cells.update_from_buffer()` reads buffer text, rebuilds
+   the notebook cell array with preserved outputs, and `ipynb.save()`
+   serializes back to indented JSON.
+
+Cell Separator Format ~
+
+Cells are separated by lines matching `# %% [markdown] id:xxx`:
+- `# %%` is the cell marker (VS Code / Jupyter percent format)
+- `[markdown]` or `[md]` marks markdown cells (optional)
+- `id:xxx` is a unique cell identifier (auto-generated)
+
+Separator lines are concealed and replaced with label overlays showing
+the cell type and execution count (e.g., "In [3]" or "markdown").
+
+Module Overview ~
+
+  Module          Purpose
+  `init`            Plugin entry point, setup, autocmds
+  `notebook`        Buffer load/save, LSP setup, yank highlight
+  `cells`           Cell tracking, navigation, CRUD operations
+  `render`          Initial notebook rendering, decorations, outputs
+  `output`          Output formatting, floating windows, virtual text
+  `kernel`          Jupyter kernel communication via subprocess
+  `ipynb`           .ipynb JSON file I/O, source format conversion
+  `python`          Python interpreter discovery and picker
+  `image`           Image rendering via `image.nvim`
+  `keymaps`         Keymap registration and action dispatch
+  `actions`         User-facing action handlers
+  `utils`           Cell ID generation, separator parsing
+
+Kernel Communication ~
+
+The plugin communicates with a Jupyter kernel through a Python subprocess
+(`scripts/jupyter_kernel_server.py`). Messages are JSON objects sent via
+stdin/stdout:
+
+  Neovim to Python:
+    `{"action": "start", "kernel": "python3"}`
+    `{"action": "execute", "code": "print(1)"}`
+    `{"action": "interrupt"}`
+    `{"action": "restart"}`
+    `{"action": "variables"}`
+    `{"action": "inspect", "name": "x"}`
+    `{"action": "shutdown"}`
+
+  Python to Neovim:
+    `{"status": "ready", "connection_file": "..."}`
+    `{"type": "output", "output": {...}}`
+    `{"type": "done", "interrupted": false}`
+    `{"variables": {...}}`
+    `{"info": "..."}`
+
+==============================================================================
+10. IMAGE SUPPORT                                         *notebook-images*
+
+notebook.nvim can display PNG images inline in the terminal when
+|image.nvim| is installed and configured.
+
+Requirements:
+- image.nvim (https://github.com/3rd/image.nvim) installed and set up
+- A terminal with image protocol support (kitty graphics protocol,
+  iTerm2 inline images, Sixel)
+- ImageMagick (`identify` command) for accurate image dimension
+  calculation
+
+Behavior:
+- Cell outputs containing `image/png` data show a placeholder in virtual
+  text: "[Image: Use toggle_output action to view]"
+- Use `<leader>jo` or `:JupyterToggleOutput` to open a floating window
+  with rendered images
+- Images are cached by cell ID and cleaned up on buffer unload
+
+Known Issues:
+- If multiple images are present and exceed the float window height,
+  they may overflow and display incorrectly
+
+Without image.nvim, PNG outputs show a text indicator instead.
+
+==============================================================================
+11. LSP INTEGRATION                                         *notebook-lsp*
+
+notebook.nvim can start LSP servers for notebook buffers. The plugin
+automatically:
+
+- Injects the selected Python path into pyright/basedpyright and ruff
+  server settings
+- Filters diagnostics from markdown cells so only code cells show errors
+- Wraps diagnostic handlers globally (virtual_text, signs, underline)
+
+Configure LSP servers via the `lsp` config option. See
+|notebook-config-lsp| for details.
+
+==============================================================================
+vim:tw=78:ts=8:ft=help:norl:
