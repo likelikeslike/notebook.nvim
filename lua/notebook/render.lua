@@ -14,6 +14,7 @@ local output = require("notebook.output")
 --- @param buf number Buffer handle
 --- @param notebook table Parsed notebook data from ipynb.load()
 --- @param ns number Namespace for cell extmarks
+--- @return table[] cell_ranges Cell range info for each cell
 function M.notebook(buf, notebook, ns)
     vim.api.nvim_buf_clear_namespace(buf, ns, 0, -1)
     vim.bo[buf].modifiable = true
@@ -90,6 +91,7 @@ function M.notebook(buf, notebook, ns)
     local decor_ns = vim.api.nvim_create_namespace("jupyter_notebook_decor")
     M.apply_decorations(buf, decor_ns, cell_ranges)
     M.render_outputs(buf, ns)
+    return cell_ranges
 end
 
 --- Apply visual decorations to cells
@@ -135,6 +137,8 @@ function M.apply_decorations(buf, ns, cell_ranges)
             })
         end
     end
+
+    M.setup_markdown_highlight(buf, cell_ranges)
 end
 
 --- Render saved outputs for all cells as virtual text
@@ -168,6 +172,86 @@ function M.render_outputs(buf, ns)
             end
         end
     end
+end
+
+--- Setup treesitter language injection for markdown cells
+--- Hooks into the parser's injection lifecycle so that the markdown child
+--- tree survives re-parses. Restricts the Python parser to code cell regions
+--- @param buf number Buffer handle
+--- @param cell_ranges table[] Cell range info with start_row, end_row, cell_type
+function M.setup_markdown_highlight(buf, cell_ranges)
+    local ok, parser = pcall(vim.treesitter.get_parser, buf)
+    if not ok or not parser then return end
+
+    local line_count = vim.api.nvim_buf_line_count(buf)
+    local md_regions = {}
+    local python_regions = {}
+    local prev_end = 0
+
+    for _, range in ipairs(cell_ranges) do
+        if range.cell_type == "markdown" then
+            local content_start = range.start_row + 1
+            local content_end = range.end_row
+            if content_start <= content_end then
+                local end_line = math.min(content_end + 1, line_count)
+                local start_byte = vim.api.nvim_buf_get_offset(buf, content_start)
+                local end_byte = vim.api.nvim_buf_get_offset(buf, end_line)
+                if start_byte >= 0 and end_byte >= 0 then
+                    table.insert(md_regions, {
+                        { content_start, 0, start_byte, end_line, 0, end_byte },
+                    })
+                end
+            end
+            if range.start_row > prev_end then
+                local sb = vim.api.nvim_buf_get_offset(buf, prev_end)
+                local cs = vim.api.nvim_buf_get_offset(buf, range.start_row + 1)
+                if sb >= 0 and cs >= 0 then
+                    table.insert(python_regions, {
+                        { prev_end, 0, sb, range.start_row + 1, 0, cs },
+                    })
+                end
+            end
+            prev_end = math.min(content_end + 1, line_count)
+        end
+    end
+
+    if #md_regions == 0 then
+        parser._notebook_md_regions = nil
+        if parser:children()["markdown"] then parser:remove_child("markdown") end
+        parser:set_included_regions({ {} })
+        parser._processed_injection_range = nil
+        parser:invalidate(true)
+        return
+    end
+
+    if prev_end < line_count then
+        local sb = vim.api.nvim_buf_get_offset(buf, prev_end)
+        local eb = vim.api.nvim_buf_get_offset(buf, line_count)
+        if sb >= 0 and eb >= 0 then
+            table.insert(python_regions, {
+                { prev_end, 0, sb, line_count, 0, eb },
+            })
+        end
+    end
+
+    pcall(vim.treesitter.language.add, "markdown")
+    pcall(vim.treesitter.language.add, "markdown_inline")
+
+    parser._notebook_md_regions = md_regions
+
+    if not parser._notebook_injections_hooked then
+        local orig = parser._add_injections
+        parser._add_injections = function(self, injections_by_lang)
+            if self._notebook_md_regions then injections_by_lang["markdown"] = self._notebook_md_regions end
+            return orig(self, injections_by_lang)
+        end
+        parser._notebook_injections_hooked = true
+    end
+
+    parser:set_included_regions(python_regions)
+    parser._processed_injection_range = nil
+    parser:invalidate(true)
+    parser:parse(true)
 end
 
 return M

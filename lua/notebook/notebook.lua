@@ -25,17 +25,18 @@ function M.load(buf, ns, config)
     end
 
     vim.b[buf].notebook = notebook
-    render.notebook(buf, notebook, ns)
+    local cell_ranges = render.notebook(buf, notebook, ns)
 
     vim.bo[buf].modified = false
     vim.bo[buf].buftype = "acwrite"
 
     local win = vim.api.nvim_get_current_win()
     vim.wo[win].conceallevel = 3
-    vim.wo[win].concealcursor = "nvic"
+    vim.wo[win].concealcursor = "c"
 
     local ft = notebook.metadata.kernelspec and notebook.metadata.kernelspec.language or "python"
     vim.bo[buf].filetype = ft
+    if pcall(vim.treesitter.start, buf, ft) then render.setup_markdown_highlight(buf, cell_ranges) end
     M.setup_lsp(buf, ns, ft, config)
 
     keymaps.setup(buf, ns, actions, config)
@@ -153,35 +154,24 @@ function M.restart_lsp(buf, ns, config)
     end, 200)
 end
 
-local diagnostic_handlers_wrapped = false
+local diagnostic_set_wrapped = false
 
---- Install global diagnostic handler wrappers that filter markdown cell diagnostics
---- Wraps built-in handlers once. Each handler checks if the buffer
---- is a notebook buffer and filters diagnostics before rendering
+--- Wrap vim.diagnostic.set to filter markdown cell diagnostics before storage
+--- Filtering at set() ensures count(), get(), statusline, and all handlers
+--- see only code cell diagnostics
 --- @param buf number Buffer handle
 --- @param ns number Namespace for extmarks
 function M.setup_diagnostic_filter(buf, ns)
     vim.b[buf].notebook_diag_ns = ns
 
-    if diagnostic_handlers_wrapped then return end
-    diagnostic_handlers_wrapped = true
+    if diagnostic_set_wrapped then return end
+    diagnostic_set_wrapped = true
 
-    local handler_names = { "virtual_text", "signs", "underline" }
-
-    for _, name in ipairs(handler_names) do
-        local orig = vim.diagnostic.handlers[name]
-        if not orig then goto continue end
-
-        vim.diagnostic.handlers[name] = {
-            show = function(namespace, bufnr, diagnostics, opts)
-                local diag_ns = vim.b[bufnr] and vim.b[bufnr].notebook_diag_ns
-                if diag_ns then diagnostics = cells.filter_markdown_diagnostics(diagnostics, bufnr, diag_ns) end
-                orig.show(namespace, bufnr, diagnostics, opts)
-            end,
-            hide = orig.hide,
-        }
-
-        ::continue::
+    local orig_set = vim.diagnostic.set
+    vim.diagnostic.set = function(namespace, bufnr, diagnostics, opts)
+        local diag_ns = vim.b[bufnr] and vim.b[bufnr].notebook_diag_ns
+        if diag_ns and diagnostics then diagnostics = cells.filter_markdown_diagnostics(diagnostics, bufnr, diag_ns) end
+        orig_set(namespace, bufnr, diagnostics, opts)
     end
 end
 
