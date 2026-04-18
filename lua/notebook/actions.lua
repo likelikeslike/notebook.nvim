@@ -236,6 +236,43 @@ function M.delete_in_cell(buf, ns, to, reg)
     cells.refresh_cells(buf, ns)
 end
 
+--- Change from cursor to end (cG) / start (cgg) inside cell: delete then enter insert mode
+--- @param buf number Buffer handle
+--- @param ns number Namespace for extmarks
+--- @param to string "start" or "end" indicating the direction of change
+--- @param reg string|nil Register to store deleted text (defaults to vim.v.register or unnamed)
+function M.change_in_cell(buf, ns, to, reg)
+    local cursor = vim.api.nvim_win_get_cursor(0)
+    local row = cursor[1] - 1
+
+    local cell = cells.get_current(buf, ns)
+    if not cell then return end
+
+    if row <= cell.start_row then return end
+
+    local start_row, end_row
+    if to == "end" then
+        start_row = row
+        end_row = cell.end_row + 1
+    elseif to == "start" then
+        start_row = cell.start_row + 1
+        end_row = row + 1
+    else
+        return
+    end
+
+    local deleted = vim.api.nvim_buf_get_lines(buf, start_row, end_row, false)
+    reg = reg ~= nil and reg ~= "" and reg or (vim.v.register ~= "" and vim.v.register or '"')
+    vim.fn.setreg(reg, table.concat(deleted, "\n"), "l")
+
+    vim.api.nvim_buf_set_lines(buf, start_row, end_row, false, { "" })
+    vim.api.nvim_win_set_cursor(0, { start_row + 1, 0 })
+    cells.refresh_cells(buf, ns)
+    vim.schedule(function()
+        vim.cmd("startinsert")
+    end)
+end
+
 --- Yank from cursor to end (yG) / start (ygg) inside cell
 --- @param buf number Buffer handle
 --- @param ns number Namespace for extmarks

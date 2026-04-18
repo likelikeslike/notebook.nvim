@@ -277,6 +277,8 @@ function M.setup_edit_restrictions(buf, ns, actions, config)
                 actions.yank_in_cell(buf, ns, "end", reg)
             elseif op == "d" then
                 actions.delete_in_cell(buf, ns, "end", reg)
+            elseif op == "c" then
+                actions.change_in_cell(buf, ns, "end", reg)
             end
         end)
     end, { buffer = buf, silent = true })
@@ -290,6 +292,8 @@ function M.setup_edit_restrictions(buf, ns, actions, config)
                 actions.yank_in_cell(buf, ns, "start", reg)
             elseif op == "d" then
                 actions.delete_in_cell(buf, ns, "start", reg)
+            elseif op == "c" then
+                actions.change_in_cell(buf, ns, "start", reg)
             end
         end)
     end, { buffer = buf, silent = true })
