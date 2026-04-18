@@ -181,7 +181,7 @@ All keymaps are buffer-local to `.ipynb` buffers. Override any default via the `
 ### Navigation
 
 | Keymap | Action | Description |
-|--------|--------|-------------|
+| -------- | -------- | ------------- |
 | `]c` | `next_cell` | Go to next cell |
 | `[c` | `prev_cell` | Go to previous cell |
 | `j` / `<Down>` | `move_down` | Move down (respects cell boundaries) |
@@ -190,7 +190,7 @@ All keymaps are buffer-local to `.ipynb` buffers. Override any default via the `
 ### Cell Management
 
 | Keymap | Action | Description |
-|--------|--------|-------------|
+| -------- | -------- | ------------- |
 | `<leader>ja` | `add_cell_below` | Add code cell below |
 | `<leader>jA` | `add_cell_above` | Add code cell above |
 | `<leader>jd` | `delete_cell` | Delete current cell |
@@ -201,7 +201,7 @@ All keymaps are buffer-local to `.ipynb` buffers. Override any default via the `
 ### Execution
 
 | Keymap | Action | Description |
-|--------|--------|-------------|
+| -------- | -------- | ------------- |
 | `<leader>jx` | `execute_cell` | Execute current cell |
 | `<leader>jX` | `execute_all_cells` | Execute all cells |
 | `<leader>jb` | `execute_cells_below` | Execute from current cell to end |
@@ -211,7 +211,7 @@ All keymaps are buffer-local to `.ipynb` buffers. Override any default via the `
 ### Kernel
 
 | Keymap | Action | Description |
-|--------|--------|-------------|
+| -------- | -------- | ------------- |
 | `<leader>jk` | `select_kernel` | Select Python interpreter |
 | `<leader>jr` | `restart_kernel` | Restart kernel |
 | `<leader>jv` | `show_variables` | Show kernel variables |
@@ -220,7 +220,7 @@ All keymaps are buffer-local to `.ipynb` buffers. Override any default via the `
 ### Output
 
 | Keymap | Action | Description |
-|--------|--------|-------------|
+| -------- | -------- | ------------- |
 | `<leader>jo` | `toggle_output` | Toggle floating output window |
 | `<leader>jc` | `clear_cell_output` | Clear current cell output |
 | `<leader>jC` | `clear_all_outputs` | Clear all cell outputs |
@@ -228,19 +228,19 @@ All keymaps are buffer-local to `.ipynb` buffers. Override any default via the `
 ### Editing
 
 | Keymap | Action | Description |
-|--------|--------|-------------|
+| -------- | -------- | ------------- |
 | `o` | `open_below` | Open line below (within cell) |
 | `O` | `open_above` | Open line above (within cell) |
 | `dd` | `delete_line` | Delete line (protected from separators) |
 | `<BS>` | `backspace` | Backspace (protected at cell boundary) |
 | `<CR>` | `enter_key` | Enter in insert mode (extends cell) |
 
-`dG`, `dgg`, `yG`, `ygg`, `G` (visual), `gg` (visual) are all scoped to current cell boundaries.
+`dG`, `dgg`, `yG`, `ygg`, `cG`, `cgg`, `G` (visual), `gg` (visual) are all scoped to current cell boundaries.
 
 ## Commands
 
 | Command | Description |
-|---------|-------------|
+| --------- | ------------- |
 | `:JupyterSelectKernel` | Select Python interpreter (discovers venvs, conda, pyenv, uv, system) |
 | `:JupyterExecuteCell` | Execute current cell (auto-connects kernel) |
 | `:JupyterExecuteAll` | Execute all cells sequentially |
@@ -265,7 +265,7 @@ All keymaps are buffer-local to `.ipynb` buffers. Override any default via the `
 ## Highlights
 
 | Group | Default Link | Description |
-|-------|-------------|-------------|
+| ------- | ------------- | ------------- |
 | `JupyterNotebookCellBg` | `CursorLine` | Code cell background |
 | `JupyterNotebookCellBgMarkdown` | `ColorColumn` | Markdown cell background |
 | `JupyterNotebookCellLabel` | `Comment` | Code cell label (In [n]) |

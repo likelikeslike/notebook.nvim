@@ -337,6 +337,8 @@ Operator-pending (within cell boundaries) ~
     `dgg` Delete from cursor to start of cell
     `yG`  Yank from cursor to end of cell
     `ygg` Yank from cursor to start of cell
+    `cG`  Change from cursor to end of cell
+    `cgg` Change from cursor to start of cell
 
 Visual mode (within cell boundaries) ~
     `G`   Select to end of cell
