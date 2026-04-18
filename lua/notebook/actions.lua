@@ -199,7 +199,8 @@ end
 --- @param buf number Buffer handle
 --- @param ns number Namespace for extmarks
 --- @param to string "start" or "end" indicating the direction of deletion
-function M.delete_in_cell(buf, ns, to)
+--- @param reg string|nil Register to store deleted text (defaults to vim.v.register or unnamed)
+function M.delete_in_cell(buf, ns, to, reg)
     local cursor = vim.api.nvim_win_get_cursor(0)
     local row = cursor[1] - 1
 
@@ -220,7 +221,8 @@ function M.delete_in_cell(buf, ns, to)
     end
 
     local deleted = vim.api.nvim_buf_get_lines(buf, start_row, end_row, false)
-    vim.fn.setreg('"', table.concat(deleted, "\n"), "l")
+    reg = reg ~= nil and reg ~= "" and reg or (vim.v.register ~= "" and vim.v.register or '"')
+    vim.fn.setreg(reg, table.concat(deleted, "\n"), "l")
 
     if end_row - start_row == 1 then
         -- Only one line, same as delete_line behavior
@@ -238,7 +240,8 @@ end
 --- @param buf number Buffer handle
 --- @param ns number Namespace for extmarks
 --- @param to string "start" or "end" indicating the direction of yanking
-function M.yank_in_cell(buf, ns, to)
+--- @param reg string|nil Register to yank into (defaults to vim.v.register or unnamed)
+function M.yank_in_cell(buf, ns, to, reg)
     local cursor = vim.api.nvim_win_get_cursor(0)
     local row = cursor[1] - 1
 
@@ -259,7 +262,8 @@ function M.yank_in_cell(buf, ns, to)
     end
 
     local yanked = vim.api.nvim_buf_get_lines(buf, start_row, end_row, false)
-    vim.fn.setreg('"', table.concat(yanked, "\n"), "l")
+    reg = reg ~= nil and reg ~= "" and reg or (vim.v.register ~= "" and vim.v.register or '"')
+    vim.fn.setreg(reg, table.concat(yanked, "\n"), "l")
 
     local bg_ns = vim.api.nvim_create_namespace("jupyter_notebook_bg")
     local saved_marks = {}
