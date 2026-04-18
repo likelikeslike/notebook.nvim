@@ -270,24 +270,30 @@ function M.setup_edit_restrictions(buf, ns, actions, config)
     -- Operator-pending mode mappings for which-key compatibility
     vim.keymap.set("o", "G", function()
         local op = vim.v.operator
+        local reg = vim.v.register
         vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<Esc>", true, false, true), "n", false)
         vim.schedule(function()
             if op == "y" then
-                actions.yank_in_cell(buf, ns, "end")
+                actions.yank_in_cell(buf, ns, "end", reg)
             elseif op == "d" then
-                actions.delete_in_cell(buf, ns, "end")
+                actions.delete_in_cell(buf, ns, "end", reg)
+            elseif op == "c" then
+                actions.change_in_cell(buf, ns, "end", reg)
             end
         end)
     end, { buffer = buf, silent = true })
 
     vim.keymap.set("o", "gg", function()
         local op = vim.v.operator
+        local reg = vim.v.register
         vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<Esc>", true, false, true), "n", false)
         vim.schedule(function()
             if op == "y" then
-                actions.yank_in_cell(buf, ns, "start")
+                actions.yank_in_cell(buf, ns, "start", reg)
             elseif op == "d" then
-                actions.delete_in_cell(buf, ns, "start")
+                actions.delete_in_cell(buf, ns, "start", reg)
+            elseif op == "c" then
+                actions.change_in_cell(buf, ns, "start", reg)
             end
         end)
     end, { buffer = buf, silent = true })
