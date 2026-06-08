@@ -1,124 +1,310 @@
 local t = require("tests.test_runner")
-local cells = require("notebook.cells")
+local render = require("notebook.render")
 
-t.describe("cells module", function()
+t.describe("render module", function()
     t.it("exports expected functions", function()
-        t.is_function(cells.get_all)
-        t.is_function(cells.get_current)
-        t.is_function(cells.goto_next)
-        t.is_function(cells.goto_prev)
-        t.is_function(cells.refresh_cells)
-        t.is_function(cells.add_below)
-        t.is_function(cells.add_above)
-        t.is_function(cells.delete_current)
-        t.is_function(cells.toggle_type)
-        t.is_function(cells.merge_below)
-        t.is_function(cells.merge_above)
-        t.is_function(cells.update_from_buffer)
-        t.is_function(cells.get_markdown_ranges)
-        t.is_function(cells.is_in_markdown)
-        t.is_function(cells.filter_markdown_diagnostics)
+        t.is_function(render.notebook)
+        t.is_function(render.apply_decorations)
+        t.is_function(render.render_outputs)
+        t.is_function(render.setup_markdown_highlight)
     end)
 end)
 
-t.describe("cells.is_in_markdown", function()
-    t.it("returns true for line inside markdown range", function()
-        local ranges = { { 0, 3 }, { 10, 15 } }
-        t.is_true(cells.is_in_markdown(2, ranges))
-    end)
-
-    t.it("returns true at range boundary", function()
-        local ranges = { { 5, 10 } }
-        t.is_true(cells.is_in_markdown(5, ranges))
-        t.is_true(cells.is_in_markdown(10, ranges))
-    end)
-
-    t.it("returns false for line outside ranges", function()
-        local ranges = { { 0, 3 }, { 10, 15 } }
-        t.is_true(not cells.is_in_markdown(5, ranges))
-    end)
-
-    t.it("returns false for empty ranges", function()
-        t.is_true(not cells.is_in_markdown(0, {}))
-    end)
-end)
-
-t.describe("cells.filter_markdown_diagnostics", function()
-    t.it("returns all diagnostics when no markdown ranges", function()
-        local diags = { { lnum = 0 }, { lnum = 5 }, { lnum = 10 } }
+t.describe("render.notebook", function()
+    t.it("returns cell_ranges table", function()
         local buf = vim.api.nvim_create_buf(false, true)
-        local ns = vim.api.nvim_create_namespace("test_filter_diag")
-        vim.api.nvim_buf_set_lines(buf, 0, -1, false, {
-            "# %% id:test1",
-            "print('hello')",
-        })
-        vim.b[buf].notebook_cells = {}
-        local result = cells.filter_markdown_diagnostics(diags, buf, ns)
-        t.eq(3, #result)
+        local ns = vim.api.nvim_create_namespace("test_render_basic")
+        local notebook = {
+            cells = {
+                {
+                    cell_type = "code",
+                    source = "x = 1",
+                    outputs = {},
+                },
+            },
+            metadata = {
+                kernelspec = { name = "python3", display_name = "Python 3" },
+            },
+        }
+        local cell_ranges = render.notebook(buf, notebook, ns)
+        t.is_not_nil(cell_ranges)
+        t.eq("table", type(cell_ranges))
+        t.eq(1, #cell_ranges)
         vim.api.nvim_buf_delete(buf, { force = true })
     end)
 
-    t.it("filters diagnostics in markdown cells", function()
-        local diags = { { lnum = 1 }, { lnum = 5 }, { lnum = 8 } }
+    t.it("cell_range has required fields", function()
         local buf = vim.api.nvim_create_buf(false, true)
-        local ns = vim.api.nvim_create_namespace("test_filter_md")
+        local ns = vim.api.nvim_create_namespace("test_render_fields")
+        local notebook = {
+            cells = {
+                {
+                    cell_type = "code",
+                    source = "print('hi')",
+                    outputs = {},
+                },
+            },
+            metadata = {
+                kernelspec = { name = "python3", display_name = "Python 3" },
+            },
+        }
+        local cell_ranges = render.notebook(buf, notebook, ns)
+        local r = cell_ranges[1]
+        t.is_not_nil(r.start_row, "start_row")
+        t.is_not_nil(r.end_row, "end_row")
+        t.is_not_nil(r.cell_type, "cell_type")
+        t.is_not_nil(r.cell_index, "cell_index")
+        t.is_not_nil(r.cell_id, "cell_id")
+        vim.api.nvim_buf_delete(buf, { force = true })
+    end)
 
-        vim.api.nvim_buf_set_lines(buf, 0, -1, false, {
-            "# %% [markdown] id:md1",
-            "# Heading",
-            "Some text",
-            "",
-            "# %% id:code1",
-            "x = 1",
-            "",
-            "# %% [markdown] id:md2",
-            "# Another heading",
-        })
+    t.it("handles code and markdown cells with correct types", function()
+        local buf = vim.api.nvim_create_buf(false, true)
+        local ns = vim.api.nvim_create_namespace("test_render_types")
+        local notebook = {
+            cells = {
+                {
+                    cell_type = "code",
+                    source = "x = 1",
+                    outputs = {},
+                },
+                {
+                    cell_type = "markdown",
+                    source = "# Hello",
+                    outputs = {},
+                },
+            },
+            metadata = {
+                kernelspec = { name = "python3", display_name = "Python 3" },
+            },
+        }
+        local cell_ranges = render.notebook(buf, notebook, ns)
+        t.eq(2, #cell_ranges)
+        t.eq("code", cell_ranges[1].cell_type)
+        t.eq("markdown", cell_ranges[2].cell_type)
+        t.eq(1, cell_ranges[1].cell_index)
+        t.eq(2, cell_ranges[2].cell_index)
+        vim.api.nvim_buf_delete(buf, { force = true })
+    end)
 
-        cells.refresh_cells(buf, ns)
+    t.it("sets buffer lines from notebook source", function()
+        local buf = vim.api.nvim_create_buf(false, true)
+        local ns = vim.api.nvim_create_namespace("test_render_lines")
+        local notebook = {
+            cells = {
+                {
+                    cell_type = "code",
+                    source = "x = 42",
+                    outputs = {},
+                },
+            },
+            metadata = {
+                kernelspec = { name = "python3", display_name = "Python 3" },
+            },
+        }
+        render.notebook(buf, notebook, ns)
+        local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+        t.is_true(#lines >= 2, "buffer should have separator + source")
+        t.eq("x = 42", lines[2])
+        vim.api.nvim_buf_delete(buf, { force = true })
+    end)
 
-        local result = cells.filter_markdown_diagnostics(diags, buf, ns)
-        t.eq(1, #result)
-        t.eq(5, result[1].lnum)
-
+    t.it("creates empty notebook with one code cell when cells empty", function()
+        local buf = vim.api.nvim_create_buf(false, true)
+        local ns = vim.api.nvim_create_namespace("test_render_empty")
+        local notebook = {
+            cells = {},
+            metadata = {
+                kernelspec = { name = "python3", display_name = "Python 3" },
+            },
+        }
+        local cell_ranges = render.notebook(buf, notebook, ns)
+        t.eq(1, #cell_ranges)
+        t.eq("code", cell_ranges[1].cell_type)
         vim.api.nvim_buf_delete(buf, { force = true })
     end)
 end)
 
-t.describe("diagnostic filter at vim.diagnostic.set", function()
-    t.it("filters markdown diagnostics from count and get", function()
+t.describe("render.setup_markdown_highlight", function()
+    t.it("does not error on code-only cells", function()
         local buf = vim.api.nvim_create_buf(false, true)
-        local ns = vim.api.nvim_create_namespace("test_diag_set_filter")
-        local diag_ns = vim.api.nvim_create_namespace("test_diag_source")
-
         vim.api.nvim_buf_set_lines(buf, 0, -1, false, {
-            "# %% [markdown] id:md1",
-            "# Heading",
-            "Some text",
             "# %% id:code1",
             "x = 1",
         })
+        local cell_ranges = {
+            { start_row = 0, end_row = 1, cell_type = "code", cell_index = 1, cell_id = "code1" },
+        }
+        local ok = pcall(render.setup_markdown_highlight, buf, cell_ranges)
+        t.is_true(ok, "should not error on code-only cells")
+        vim.api.nvim_buf_delete(buf, { force = true })
+    end)
 
-        cells.refresh_cells(buf, ns)
-        require("notebook.notebook").setup_diagnostic_filter(buf, ns)
+    t.it("does not error on invalid buffer", function()
+        local cell_ranges = {
+            { start_row = 0, end_row = 1, cell_type = "markdown", cell_index = 1, cell_id = "md1" },
+        }
+        local ok = pcall(render.setup_markdown_highlight, 99999, cell_ranges)
+        t.is_true(ok, "should not error on invalid buffer")
+    end)
 
-        vim.diagnostic.set(diag_ns, buf, {
-            { lnum = 1, col = 0, message = "md warning", severity = vim.diagnostic.severity.WARN },
-            { lnum = 4, col = 0, message = "code warning", severity = vim.diagnostic.severity.WARN },
+    t.it("sets _notebook_md_regions on parser when markdown cells present", function()
+        local buf = vim.api.nvim_create_buf(false, true)
+        vim.bo[buf].filetype = "python"
+        vim.api.nvim_buf_set_lines(buf, 0, -1, false, {
+            "# %% id:code1",
+            "x = 1",
+            "# %% [markdown] id:md1",
+            "# Hello world",
         })
 
-        local stored = vim.diagnostic.get(buf)
-        t.eq(1, #stored, "only code cell diagnostic should be stored")
-        t.eq("code warning", stored[1].message)
-
-        local counts = vim.diagnostic.count(buf)
-        local total = 0
-        for _, v in pairs(counts) do
-            total = total + v
+        local ts_ok = pcall(vim.treesitter.start, buf, "python")
+        if not ts_ok then
+            vim.api.nvim_buf_delete(buf, { force = true })
+            return
         end
-        t.eq(1, total, "diagnostic count should exclude markdown cells")
 
-        vim.diagnostic.reset(diag_ns, buf)
+        local parser_ok, parser = pcall(vim.treesitter.get_parser, buf, "python")
+        if not parser_ok or not parser then
+            vim.api.nvim_buf_delete(buf, { force = true })
+            return
+        end
+
+        local cell_ranges = {
+            { start_row = 0, end_row = 1, cell_type = "code", cell_index = 1, cell_id = "code1" },
+            { start_row = 2, end_row = 3, cell_type = "markdown", cell_index = 2, cell_id = "md1" },
+        }
+        render.setup_markdown_highlight(buf, cell_ranges)
+
+        local p = vim.treesitter.get_parser(buf, "python")
+        t.is_not_nil(p, "parser should be available")
+        t.is_not_nil(p._notebook_md_regions, "parser should have _notebook_md_regions set")
+        t.eq(1, #p._notebook_md_regions, "should have one markdown region")
+        vim.api.nvim_buf_delete(buf, { force = true })
+    end)
+
+    t.it("clears _notebook_md_regions when no markdown cells", function()
+        local buf = vim.api.nvim_create_buf(false, true)
+        vim.bo[buf].filetype = "python"
+        vim.api.nvim_buf_set_lines(buf, 0, -1, false, {
+            "# %% id:code1",
+            "x = 1",
+        })
+
+        local ts_ok = pcall(vim.treesitter.start, buf, "python")
+        if not ts_ok then
+            vim.api.nvim_buf_delete(buf, { force = true })
+            return
+        end
+
+        local parser_ok, parser = pcall(vim.treesitter.get_parser, buf, "python")
+        if not parser_ok or not parser then
+            vim.api.nvim_buf_delete(buf, { force = true })
+            return
+        end
+
+        local cell_ranges = {
+            { start_row = 0, end_row = 1, cell_type = "code", cell_index = 1, cell_id = "code1" },
+        }
+        render.setup_markdown_highlight(buf, cell_ranges)
+
+        local p = vim.treesitter.get_parser(buf, "python")
+        t.is_not_nil(p, "parser should be available")
+        t.is_nil(p._notebook_md_regions, "parser should not have _notebook_md_regions")
+        vim.api.nvim_buf_delete(buf, { force = true })
+    end)
+end)
+
+local function setup_highlight_buf()
+    local buf = vim.api.nvim_create_buf(false, true)
+    vim.api.nvim_buf_set_lines(buf, 0, -1, false, {
+        "# %% id:code1",
+        "x = 1",
+        "# %% [markdown] id:md1",
+        "# Hello world",
+        "some **bold** text",
+        "# %% id:code2",
+        "for i in range(10):",
+        "    print(i)",
+    })
+    vim.bo[buf].filetype = "python"
+    local ts_ok = pcall(vim.treesitter.start, buf, "python")
+    if not ts_ok then return nil end
+    local cell_ranges = {
+        { start_row = 0, end_row = 1, cell_type = "code", cell_index = 1, cell_id = "code1" },
+        { start_row = 2, end_row = 4, cell_type = "markdown", cell_index = 2, cell_id = "md1" },
+        { start_row = 5, end_row = 7, cell_type = "code", cell_index = 3, cell_id = "code2" },
+    }
+    render.setup_markdown_highlight(buf, cell_ranges)
+    return buf, cell_ranges
+end
+
+local function has_capture(captures, name)
+    for _, c in ipairs(captures) do
+        if c.capture == name or c.capture:find(name, 1, true) == 1 then return true end
+    end
+    return false
+end
+
+local function has_lang(captures, lang)
+    for _, c in ipairs(captures) do
+        if c.lang == lang then return true end
+    end
+    return false
+end
+
+t.describe("markdown highlight integration", function()
+    t.it("parser has markdown child tree after injection", function()
+        local buf = setup_highlight_buf()
+        if not buf then return end
+        local parser = vim.treesitter.get_parser(buf)
+        t.is_not_nil(parser:children()["markdown"], "parser should have markdown child")
+        vim.api.nvim_buf_delete(buf, { force = true })
+    end)
+
+    t.it("markdown heading gets markup.heading capture", function()
+        local buf = setup_highlight_buf()
+        if not buf then return end
+        local captures = vim.treesitter.get_captures_at_pos(buf, 3, 2)
+        t.is_true(has_capture(captures, "markup.heading.1"), "should have markup.heading.1")
+        t.is_true(has_lang(captures, "markdown"), "heading should come from markdown lang")
+        vim.api.nvim_buf_delete(buf, { force = true })
+    end)
+
+    t.it("markdown cell does not get python captures", function()
+        local buf = setup_highlight_buf()
+        if not buf then return end
+        local captures = vim.treesitter.get_captures_at_pos(buf, 3, 2)
+        t.is_true(not has_lang(captures, "python"), "markdown line should not have python captures")
+        vim.api.nvim_buf_delete(buf, { force = true })
+    end)
+
+    t.it("code cell gets python captures", function()
+        local buf = setup_highlight_buf()
+        if not buf then return end
+        local captures = vim.treesitter.get_captures_at_pos(buf, 1, 0)
+        t.is_true(has_lang(captures, "python"), "code cell should have python captures")
+        t.is_true(has_capture(captures, "variable"), "x should be a variable capture")
+        vim.api.nvim_buf_delete(buf, { force = true })
+    end)
+
+    t.it("code cell after markdown still gets python captures", function()
+        local buf = setup_highlight_buf()
+        if not buf then return end
+        local captures = vim.treesitter.get_captures_at_pos(buf, 6, 0)
+        t.is_true(has_lang(captures, "python"), "second code cell should have python captures")
+        t.is_true(has_capture(captures, "keyword"), "for should be a keyword capture")
+        vim.api.nvim_buf_delete(buf, { force = true })
+    end)
+
+    t.it("bold text in markdown gets markup capture", function()
+        local buf = setup_highlight_buf()
+        if not buf then return end
+        local captures = vim.treesitter.get_captures_at_pos(buf, 4, 7)
+        t.is_true(
+            has_lang(captures, "markdown_inline") or has_lang(captures, "markdown"),
+            "bold text should come from markdown or markdown_inline"
+        )
         vim.api.nvim_buf_delete(buf, { force = true })
     end)
 end)

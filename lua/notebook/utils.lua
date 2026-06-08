@@ -2,49 +2,59 @@
 ---@brief [[
 --- Utilities for cell ID generation and separator line parsing.
 ---
---- Cell separator format: "# %% [markdown] id:xxx"
---- - "# %%" is the cell marker (VS Code / Jupyter notebook style)
---- - "[markdown]" or "[md]" indicates markdown cell (optional)
---- - "id:xxx" is the unique cell identifier (optional, auto-generated)
+--- Cell separator format: "# %%" (code) or "# %% [markdown]" (markdown).
+--- Compatible with Jupytext percent-format and VS Code cell markers. The
+--- marker must appear at column 0, followed by end-of-line, whitespace, or
+--- "[". Lines like "# %" (one percent) or "# %%bar" are NOT separators.
+---
+--- Cell identity is tracked via extmarks in vim.b[buf].notebook_cells, NOT
+--- via separator-line text. Keeping identity out of the buffer text prevents
+--- LSP tools (copilot, codeium, ...) from ingesting synthetic id tokens that
+--- the language model would then echo back as completions.
 ---@brief ]]
 
 local M = {}
 
 local id_counter = 0
 
+local SEPARATOR_PATTERNS = {
+    "^# %%%%$",
+    "^# %%%%%s",
+    "^# %%%%%[",
+}
+
 --- Generate a unique cell identifier
---- Format: "cell_{timestamp_ns}_{counter}"
 --- @return string cell_id
 function M.generate_cell_id()
     id_counter = id_counter + 1
     return string.format("cell_%d_%d", vim.uv.hrtime(), id_counter)
 end
 
---- Parse a cell separator line to extract type and ID
---- @param line string Separator line (e.g. "# %% [markdown] id:abc123")
---- @return string cell_type "code" or "markdown"
---- @return string? cell_id Cell identifier if present
-function M.parse_separator(line)
-    local cell_type = "code"
-    local cell_id = nil
-
-    if line:match("%[markdown%]") or line:match("%[md%]") then cell_type = "markdown" end
-
-    local id_match = line:match("id:([%w_]+)")
-    if id_match then cell_id = id_match end
-
-    return cell_type, cell_id
+--- Check whether a line is a cell separator.
+--- @param line string
+--- @return boolean
+function M.is_separator(line)
+    for _, pat in ipairs(SEPARATOR_PATTERNS) do
+        if line:match(pat) then return true end
+    end
+    return false
 end
 
---- Build a cell separator line from type and ID
+--- Parse a cell separator line to extract its type.
+--- @param line string Separator line (e.g. "# %% [markdown]")
+--- @return string cell_type "code" or "markdown"
+function M.parse_separator(line)
+    if line:match("%[markdown%]") or line:match("%[md%]") then return "markdown" end
+    return "code"
+end
+
+--- Build a cell separator line from type.
+--- Cell identity is stored via extmarks.
 --- @param cell_type string "code" or "markdown"
---- @param cell_id string? Optional cell identifier
---- @return string separator The formatted separator line
-function M.build_separator(cell_type, cell_id)
-    local sep = "# %%"
-    if cell_type == "markdown" then sep = sep .. " [markdown]" end
-    if cell_id then sep = sep .. " id:" .. cell_id end
-    return sep
+--- @return string separator
+function M.build_separator(cell_type)
+    if cell_type == "markdown" then return "# %% [markdown]" end
+    return "# %%"
 end
 
 --- Format elapsed time for display in output headers
