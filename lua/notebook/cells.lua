@@ -213,26 +213,49 @@ function M.maybe_follow_typed_separator(buf, new_separator_rows)
     vim.api.nvim_win_set_cursor(cur_win, { cur_row + 2, 0 })
 end
 
---- Insert a new code cell below current cell
+--- @param buf number Buffer handle
+--- @param saved_view table Result of vim.fn.winsaveview() taken before the change
+--- @param baseline_changenr number Result of vim.fn.changenr() taken before the change
+local function restore_view_on_undo(buf, saved_view, baseline_changenr)
+    local group = vim.api.nvim_create_augroup("notebook_undo_cursor_" .. buf, { clear = true })
+    vim.api.nvim_create_autocmd("TextChanged", {
+        group = group,
+        buffer = buf,
+        callback = function()
+            if vim.fn.changenr() <= baseline_changenr then
+                vim.fn.winrestview(saved_view)
+                vim.api.nvim_clear_autocmds({ group = group })
+            end
+        end,
+    })
+end
+
+--- Insert a new code cell at insert_row with separator + empty content row
+--- Places cursor on the new content row
 --- @param buf number Buffer handle
 --- @param ns number Namespace for extmarks
-function M.add_below(buf, ns)
-    local current = M.get_current(buf, ns)
-    local insert_row
-
-    if current then
-        insert_row = current.end_row + 1
-    else
-        insert_row = vim.api.nvim_buf_line_count(buf)
-    end
+--- @param insert_row number 0-indexed row to insert before
+local function insert_cell_at(buf, ns, insert_row)
+    local saved_view = vim.fn.winsaveview()
+    local baseline_changenr = vim.fn.changenr()
 
     local new_lines = { utils.build_separator("code"), "" }
     vim.api.nvim_buf_set_lines(buf, insert_row, insert_row, false, new_lines)
 
     M.refresh_cells(buf, ns)
     vim.api.nvim_win_set_cursor(0, { insert_row + 2, 0 })
-
     vim.bo[buf].modified = true
+
+    restore_view_on_undo(buf, saved_view, baseline_changenr)
+end
+
+--- Insert a new code cell below current cell
+--- @param buf number Buffer handle
+--- @param ns number Namespace for extmarks
+function M.add_below(buf, ns)
+    local current = M.get_current(buf, ns)
+    local insert_row = current and (current.end_row + 1) or vim.api.nvim_buf_line_count(buf)
+    insert_cell_at(buf, ns, insert_row)
 end
 
 --- Insert a new code cell above current cell
@@ -240,22 +263,8 @@ end
 --- @param ns number Namespace for extmarks
 function M.add_above(buf, ns)
     local current = M.get_current(buf, ns)
-    local insert_row
-
-    if current then
-        insert_row = current.start_row
-    else
-        insert_row = 0
-    end
-
-    local separator = utils.build_separator("code")
-    local new_lines = { separator, "" }
-    vim.api.nvim_buf_set_lines(buf, insert_row, insert_row, false, new_lines)
-
-    M.refresh_cells(buf, ns)
-    vim.api.nvim_win_set_cursor(0, { insert_row + 2, 0 })
-
-    vim.bo[buf].modified = true
+    local insert_row = current and current.start_row or 0
+    insert_cell_at(buf, ns, insert_row)
 end
 
 --- Delete the cell at cursor
