@@ -158,8 +158,14 @@ t.describe("render.setup_markdown_highlight", function()
             "# Hello world",
         })
 
+        local ts_ok = pcall(vim.treesitter.start, buf, "python")
+        if not ts_ok then
+            vim.api.nvim_buf_delete(buf, { force = true })
+            return
+        end
+
         local parser_ok, parser = pcall(vim.treesitter.get_parser, buf, "python")
-        if not parser_ok then
+        if not parser_ok or not parser then
             vim.api.nvim_buf_delete(buf, { force = true })
             return
         end
@@ -170,7 +176,8 @@ t.describe("render.setup_markdown_highlight", function()
         }
         render.setup_markdown_highlight(buf, cell_ranges)
 
-        local p = vim.treesitter.get_parser(buf)
+        local p = vim.treesitter.get_parser(buf, "python")
+        t.is_not_nil(p, "parser should be available")
         t.is_not_nil(p._notebook_md_regions, "parser should have _notebook_md_regions set")
         t.eq(1, #p._notebook_md_regions, "should have one markdown region")
         vim.api.nvim_buf_delete(buf, { force = true })
@@ -184,8 +191,14 @@ t.describe("render.setup_markdown_highlight", function()
             "x = 1",
         })
 
-        local parser_ok, _ = pcall(vim.treesitter.get_parser, buf, "python")
-        if not parser_ok then
+        local ts_ok = pcall(vim.treesitter.start, buf, "python")
+        if not ts_ok then
+            vim.api.nvim_buf_delete(buf, { force = true })
+            return
+        end
+
+        local parser_ok, parser = pcall(vim.treesitter.get_parser, buf, "python")
+        if not parser_ok or not parser then
             vim.api.nvim_buf_delete(buf, { force = true })
             return
         end
@@ -195,7 +208,8 @@ t.describe("render.setup_markdown_highlight", function()
         }
         render.setup_markdown_highlight(buf, cell_ranges)
 
-        local p = vim.treesitter.get_parser(buf)
+        local p = vim.treesitter.get_parser(buf, "python")
+        t.is_not_nil(p, "parser should be available")
         t.is_nil(p._notebook_md_regions, "parser should not have _notebook_md_regions")
         vim.api.nvim_buf_delete(buf, { force = true })
     end)

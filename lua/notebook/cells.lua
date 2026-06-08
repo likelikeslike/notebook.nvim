@@ -110,6 +110,14 @@ end
 --- @param buf number Buffer handle
 --- @param ns number Namespace for extmarks
 function M.refresh_cells(buf, ns)
+    local row_to_id = {}
+    local prior_cells = vim.b[buf].notebook_cells or {}
+    for _, mark in ipairs(vim.api.nvim_buf_get_extmarks(buf, ns, 0, -1, {})) do
+        local ext_id, start_row = mark[1], mark[2]
+        local data = prior_cells[ext_id]
+        if data and data.cell_id then row_to_id[start_row] = data.cell_id end
+    end
+
     vim.api.nvim_buf_clear_namespace(buf, ns, 0, -1)
     local decor_ns = vim.api.nvim_create_namespace("jupyter_notebook_decor")
     vim.api.nvim_buf_clear_namespace(buf, decor_ns, 0, -1)
@@ -121,10 +129,26 @@ function M.refresh_cells(buf, ns)
     local current_start = nil
     local current_type = "code"
     local current_id = nil
+    local new_separator_rows = {}
 
-    for i, line in ipairs(lines) do
+    local i = 1
+    while i <= #lines do
+        local line = lines[i]
         local row = i - 1
-        if line:match("^# %%") then
+        if utils.is_separator(line) then
+            if line:match("id:") then
+                local clean = utils.build_separator(utils.parse_separator(line))
+                vim.api.nvim_buf_set_lines(buf, row, row + 1, false, { clean })
+                lines[i] = clean
+            end
+
+            local is_last = i == #lines
+            local next_is_separator = (not is_last) and utils.is_separator(lines[i + 1])
+            if is_last or next_is_separator then
+                vim.api.nvim_buf_set_lines(buf, row + 1, row + 1, false, { "" })
+                table.insert(lines, i + 1, "")
+            end
+
             if current_start ~= nil then
                 table.insert(cell_ranges, {
                     start_row = current_start,
@@ -135,8 +159,12 @@ function M.refresh_cells(buf, ns)
                 })
             end
             current_start = row
-            current_type, current_id = utils.parse_separator(line)
+            current_type = utils.parse_separator(lines[i])
+            local existing_id = row_to_id[row]
+            if not existing_id then table.insert(new_separator_rows, row) end
+            current_id = existing_id or utils.generate_cell_id()
         end
+        i = i + 1
     end
 
     if current_start ~= nil then
@@ -165,10 +193,24 @@ function M.refresh_cells(buf, ns)
 
     vim.b[buf].notebook_cells = cell_data
 
+    M.maybe_follow_typed_separator(buf, new_separator_rows)
+
     local render = require("notebook.render")
     render.apply_decorations(buf, decor_ns, cell_ranges)
 
     render.render_outputs(buf, ns)
+end
+
+--- @param buf number Buffer handle
+--- @param new_separator_rows number[] 0-indexed rows of separators
+function M.maybe_follow_typed_separator(buf, new_separator_rows)
+    if #new_separator_rows ~= 1 then return end
+    if vim.api.nvim_get_mode().mode:sub(1, 1) ~= "i" then return end
+    local cur_win = vim.api.nvim_get_current_win()
+    if vim.api.nvim_win_get_buf(cur_win) ~= buf then return end
+    local cur_row = vim.api.nvim_win_get_cursor(cur_win)[1] - 1
+    if cur_row ~= new_separator_rows[1] then return end
+    vim.api.nvim_win_set_cursor(cur_win, { cur_row + 2, 0 })
 end
 
 --- Insert a new code cell below current cell
@@ -184,9 +226,7 @@ function M.add_below(buf, ns)
         insert_row = vim.api.nvim_buf_line_count(buf)
     end
 
-    local cell_id = utils.generate_cell_id()
-    local separator = utils.build_separator("code", cell_id)
-    local new_lines = { separator, "" }
+    local new_lines = { utils.build_separator("code"), "" }
     vim.api.nvim_buf_set_lines(buf, insert_row, insert_row, false, new_lines)
 
     M.refresh_cells(buf, ns)
@@ -208,8 +248,7 @@ function M.add_above(buf, ns)
         insert_row = 0
     end
 
-    local cell_id = utils.generate_cell_id()
-    local separator = utils.build_separator("code", cell_id)
+    local separator = utils.build_separator("code")
     local new_lines = { separator, "" }
     vim.api.nvim_buf_set_lines(buf, insert_row, insert_row, false, new_lines)
 
@@ -255,7 +294,7 @@ function M.toggle_type(buf, ns)
     end
 
     local new_type = current.cell_type == "code" and "markdown" or "code"
-    local new_line = utils.build_separator(new_type, current.cell_id)
+    local new_line = utils.build_separator(new_type)
 
     vim.api.nvim_buf_set_lines(buf, current.start_row, current.start_row + 1, false, { new_line })
     M.refresh_cells(buf, ns)
@@ -324,6 +363,7 @@ function M.update_from_buffer(buf, notebook, ns)
         -- Match by cell_id first; fall back to positional index for notebooks without IDs
         local orig = (cell.cell_id and orig_by_id[cell.cell_id]) or (notebook.cells and notebook.cells[i])
         local metadata = orig and orig.metadata or {}
+        if cell.cell_id and not metadata.id then metadata.id = cell.cell_id end
 
         local new_cell = {
             cell_type = cell.cell_type,

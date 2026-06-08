@@ -29,7 +29,7 @@ function M.notebook(buf, notebook, ns)
 
         if cell.execution_count == vim.NIL then cell.execution_count = nil end
 
-        local separator = utils.build_separator(cell.cell_type, cell_id)
+        local separator = utils.build_separator(cell.cell_type)
         local cell_start = #lines
 
         table.insert(lines, separator)
@@ -58,7 +58,7 @@ function M.notebook(buf, notebook, ns)
 
     if #lines == 0 then
         local cell_id = utils.generate_cell_id()
-        lines = { utils.build_separator("code", cell_id), "" }
+        lines = { utils.build_separator("code"), "" }
         table.insert(cell_ranges, {
             start_row = 0,
             end_row = 1,
